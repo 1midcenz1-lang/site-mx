@@ -1,9 +1,7 @@
 ﻿(function () {
-  const button = document.getElementById("load-videos-btn");
-  if (!button) return;
-
   const approvedText = document.getElementById("approved-text");
   const listBox = document.getElementById("video-list");
+  if (!approvedText || !listBox) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId())
     || localStorage.getItem("mx_device_id")
@@ -35,11 +33,14 @@
       }
 
       data.categories.forEach((cat) => {
-        const card = document.createElement("article");
+        const wrapper = document.createElement("details");
+        wrapper.className = "accordion-item";
+        const summary = document.createElement("summary");
+        summary.textContent = `دسته ${cat.title}`;
+        wrapper.appendChild(summary);
+
+        const card = document.createElement("div");
         card.className = "card";
-        const title = document.createElement("h3");
-        title.textContent = `دسته ${cat.title}`;
-        card.appendChild(title);
 
         if (!cat.videos.length) {
           const p = document.createElement("p");
@@ -59,7 +60,8 @@
           card.appendChild(document.createElement("br"));
         });
 
-        listBox.appendChild(card);
+        wrapper.appendChild(card);
+        listBox.appendChild(wrapper);
       });
 
       fetch("/api/my-videos/mark-seen", {
@@ -73,6 +75,5 @@
     }
   }
 
-  button.addEventListener("click", loadVideos);
   loadVideos();
 })();

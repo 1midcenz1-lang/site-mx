@@ -50,9 +50,10 @@ CLIENT_WAITING_REVIEW_TEXT = (
 )
 
 CLIENT_APPROVED_TEXT = (
-    "مرسی که خرید کردید.\n"
-    "عضویت شما تایید شد و دسترسی دسته انتخابی فعال شد.\n\n"
-    "اگر دوباره خواستید خریدی بکنید برای فعال سازی باید دقیقا کلمه دوباره رو ارسال کنید"
+    "مرسى كه خريد كرديد.\n"
+    "توجه كنيد خريد شما در اينجا فقط با همين دستگاه قابل نمايشه اگر دسته بندى براى شما فعال نشده لطفا تا تاييد ادمين صبر كنيد\n"
+    "توجه كنيد درصورتى كه فيش فيك ارسال كنيد وضعيتتون ثابت ميمونه و ممكن است بن بشيد.\n"
+    "اكر دوباره خواستيد خريدى بكنيد ميتونيد مجدد دريافت ويديو رو بزنيد و دسته بندى ديكرى را بخريد."
 )
 
 ALLOWED_RECEIPT_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -697,8 +698,8 @@ def admin_approve_request(request_id):
 @admin_required
 def admin_reject_request(request_id):
     reason = request.form.get("reason", "").strip()
-    if len(reason) < 5:
-        return jsonify({"ok": False, "message": "دلیل رد باید حداقل ۵ کاراکتر باشد."}), 400
+    if not reason:
+        return jsonify({"ok": False, "message": "دلیل رد را وارد کنید."}), 400
 
     db = get_db()
     req = db.execute("SELECT * FROM purchase_requests WHERE id=?", (request_id,)).fetchone()
@@ -718,7 +719,7 @@ def submit_report():
     report_type = request.form.get("report_type", "").strip()
     report_text = request.form.get("report_text", "").strip()
     device_id = request.form.get("device_id", "").strip()
-    allowed_types = {"مستحجن", "کلاهبرداری"}
+    allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی"}
 
     if report_type not in allowed_types or not report_text or not device_id:
         return jsonify({"ok": False, "message": "اطلاعات ریپورت کامل نیست."}), 400

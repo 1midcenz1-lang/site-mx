@@ -103,8 +103,8 @@
       const form = btn.closest("form");
       const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
       const reason = reasonInput ? reasonInput.value.trim() : "";
-      if (reason.length < 5) {
-        alert("دلیل رد را کامل وارد کنید.");
+      if (!reason) {
+        alert("دلیل رد را وارد کنید.");
         return;
       }
       const fd = new FormData();

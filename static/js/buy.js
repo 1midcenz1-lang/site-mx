@@ -8,6 +8,7 @@
   const submitBtn = form.querySelector("button[type='submit']");
 
   function lockForm(withError) {
+    form.classList.add("hidden");
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.classList.add("hidden");
@@ -101,4 +102,6 @@
       }
     }
   });
+
+  recoverFromPendingState();
 })();
