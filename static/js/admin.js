@@ -100,7 +100,16 @@
   document.querySelectorAll(".reject-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const rid = btn.dataset.requestId;
-      const res = await fetch(`/admin/api/requests/${rid}/reject`, { method: "POST" });
+      const form = btn.closest("form");
+      const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
+      const reason = reasonInput ? reasonInput.value.trim() : "";
+      if (reason.length < 5) {
+        alert("دلیل رد را کامل وارد کنید.");
+        return;
+      }
+      const fd = new FormData();
+      fd.append("reason", reason);
+      const res = await fetch(`/admin/api/requests/${rid}/reject`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         alert(data.message || "خطا در رد درخواست");

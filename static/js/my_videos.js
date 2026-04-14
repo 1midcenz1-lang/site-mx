@@ -61,6 +61,12 @@
 
         listBox.appendChild(card);
       });
+
+      fetch("/api/my-videos/mark-seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId }),
+      }).catch(() => {});
     } catch (_err) {
       approvedText.classList.add("error");
       approvedText.textContent = "خطای ارتباط با سرور";

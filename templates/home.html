@@ -74,11 +74,15 @@
       const btn = card.querySelector(".like-btn");
       if (!btn) return;
       if (!id) return;
+      let inFlight = false;
       btn.addEventListener("click", () => {
+        if (inFlight) return;
+        inFlight = true;
+        const nextLiked = !liked.has(String(id));
         fetch("/api/category-likes/toggle", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category_id: Number(id), device_id: deviceId }),
+          body: JSON.stringify({ category_id: Number(id), device_id: deviceId, liked: nextLiked }),
         })
           .then((res) => res.json())
           .then((data) => {
@@ -86,6 +90,9 @@
             if (data.liked) liked.add(String(id));
             else liked.delete(String(id));
             renderCard(card, data.liked, data.count || 0);
+          })
+          .finally(() => {
+            inFlight = false;
           });
       });
     });

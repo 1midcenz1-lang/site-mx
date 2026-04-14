@@ -7,6 +7,16 @@
   const deviceInput = document.getElementById("device_id");
   const submitBtn = form.querySelector("button[type='submit']");
 
+  function lockForm(withError) {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.add("hidden");
+    }
+    const fileInput = form.querySelector("input[type='file']");
+    if (fileInput) fileInput.disabled = true;
+    if (withError) output.classList.add("error");
+  }
+
   const deviceId = (window.MX && window.MX.ensureDeviceId())
     || localStorage.getItem("mx_device_id")
     || crypto.randomUUID();
@@ -18,10 +28,15 @@
       const res = await fetch(`/api/purchase-status?device_id=${encodeURIComponent(deviceId)}`);
       const data = await res.json();
       if (res.ok && data.ok && data.has_pending) {
-        output.classList.remove("error");
+        output.classList.add("error");
         output.textContent = data.message || "درحال بررسی پرداختت هستیم.";
+        lockForm(true);
         if (pendingNote) pendingNote.classList.remove("hidden");
         return true;
+      }
+      if (res.ok && data.ok && data.is_rejected && data.rejected_note) {
+        output.classList.add("error");
+        output.textContent = `درخواست قبلی شما رد شد: ${data.rejected_note}`;
       }
     } catch (_err) {
       // silent
@@ -54,6 +69,11 @@
       if (!res.ok || !data.ok) {
         output.classList.add("error");
         output.textContent = data.message || "خطا در ثبت درخواست";
+        if (data.pending_exists) {
+          lockForm(true);
+          if (pendingNote) pendingNote.classList.remove("hidden");
+          return;
+        }
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.textContent = "ارسال فیش و ثبت درخواست";

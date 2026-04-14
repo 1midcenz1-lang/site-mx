@@ -64,6 +64,7 @@
         <th>درخواست</th>
         <th>فیش</th>
         <th>وضعیت</th>
+        <th>یادداشت ادمین</th>
         <th>عملیات</th>
       </tr>
     </thead>
@@ -74,6 +75,7 @@
         <td>{{ r.requested_category }}</td>
         <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
         <td>{{ r.status }}</td>
+        <td>{{ r.admin_note or "-" }}</td>
         <td>
           {% if r.status == 'pending' %}
           <form class="approve-form" data-request-id="{{ r.id }}">
@@ -83,6 +85,8 @@
               {% endfor %}
             </div>
             <button class="btn small" type="submit">تایید</button>
+            <label>دلیل رد</label>
+            <textarea name="reject_reason" rows="2" placeholder="دلیل رد را بنویسید..."></textarea>
             <button class="btn btn-danger small reject-btn" type="button" data-request-id="{{ r.id }}">رد</button>
           </form>
           {% else %}

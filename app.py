@@ -180,6 +180,27 @@ def init_db():
             UNIQUE(category_id, device_id),
             FOREIGN KEY (category_id) REFERENCES categories(id)
         );
+
+        CREATE TABLE IF NOT EXISTS user_video_seen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            category_id INTEGER NOT NULL,
+            seen_at TEXT NOT NULL,
+            UNIQUE(user_id, category_id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_purchase_requests_user_status
+            ON purchase_requests(user_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_purchase_requests_user_created
+            ON purchase_requests(user_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_user_access_user
+            ON user_access(user_id, category_id);
+        CREATE INDEX IF NOT EXISTS idx_videos_category
+            ON videos(category_id, id);
+        CREATE INDEX IF NOT EXISTS idx_category_likes_category
+            ON category_likes(category_id);
         """
     )
 
@@ -335,12 +356,12 @@ def submit_request():
     if pending_request:
         return jsonify(
             {
-                "ok": True,
+                "ok": False,
                 "message": CLIENT_WAITING_REVIEW_TEXT,
                 "next_url": "/my-videos",
                 "pending_exists": True,
             }
-        )
+        ), 409
 
     if not receipt:
         return jsonify({"ok": False, "message": "فیش الزامی است."}), 400
@@ -387,11 +408,28 @@ def purchase_status():
     if not user:
         return jsonify({"ok": True, "has_pending": False})
 
-    pending = db.execute(
-        "SELECT id FROM purchase_requests WHERE user_id=? AND status='pending' ORDER BY id DESC LIMIT 1",
+    latest = db.execute(
+        """
+        SELECT status, admin_note, reviewed_at, created_at
+        FROM purchase_requests
+        WHERE user_id=?
+        ORDER BY id DESC LIMIT 1
+        """,
         (user["id"],),
     ).fetchone()
-    return jsonify({"ok": True, "has_pending": bool(pending), "message": CLIENT_WAITING_REVIEW_TEXT})
+    has_pending = bool(latest and latest["status"] == "pending")
+    is_rejected = bool(latest and latest["status"] == "rejected")
+    return jsonify(
+        {
+            "ok": True,
+            "has_pending": has_pending,
+            "is_rejected": is_rejected,
+            "message": CLIENT_WAITING_REVIEW_TEXT,
+            "rejected_note": (latest["admin_note"] if is_rejected else None),
+            "reviewed_at": (latest["reviewed_at"] if latest else None),
+            "created_at": (latest["created_at"] if latest else None),
+        }
+    )
 
 
 @app.route("/my-videos")
@@ -430,6 +468,11 @@ def api_my_videos():
         (user["id"],),
     ).fetchall()
 
+    total_categories = db.execute(
+        "SELECT COUNT(*) AS c FROM user_access WHERE user_id=?",
+        (user["id"],),
+    ).fetchone()["c"]
+
     grouped = {}
     for row in rows:
         key = row["category_id"]
@@ -462,8 +505,54 @@ def api_my_videos():
             "ok": True,
             "approved_text": CLIENT_APPROVED_TEXT,
             "categories": list(grouped.values()),
+            "total_categories": total_categories,
         }
     )
+
+
+@app.get("/api/my-videos/summary")
+def api_my_videos_summary():
+    device_id = request.args.get("device_id", "").strip()
+    if not device_id:
+        return jsonify({"ok": True, "total_categories": 0, "seen_categories": 0, "unseen_categories": 0})
+
+    db = get_db()
+    user = db.execute("SELECT id FROM users WHERE device_id=? ORDER BY id DESC", (device_id,)).fetchone()
+    if not user:
+        return jsonify({"ok": True, "total_categories": 0, "seen_categories": 0, "unseen_categories": 0})
+
+    total = db.execute("SELECT COUNT(*) AS c FROM user_access WHERE user_id=?", (user["id"],)).fetchone()["c"]
+    seen = db.execute("SELECT COUNT(*) AS c FROM user_video_seen WHERE user_id=?", (user["id"],)).fetchone()["c"]
+    unseen = max(total - seen, 0)
+    return jsonify({"ok": True, "total_categories": total, "seen_categories": seen, "unseen_categories": unseen})
+
+
+@app.post("/api/my-videos/mark-seen")
+def api_mark_videos_seen():
+    payload = request.get_json(silent=True) or {}
+    device_id = (payload.get("device_id") or "").strip()
+    if not device_id:
+        return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
+
+    db = get_db()
+    user = db.execute("SELECT id FROM users WHERE device_id=? ORDER BY id DESC", (device_id,)).fetchone()
+    if not user:
+        return jsonify({"ok": True, "marked": 0})
+
+    category_ids = db.execute("SELECT category_id FROM user_access WHERE user_id=?", (user["id"],)).fetchall()
+    marked = 0
+    for row in category_ids:
+        cursor = db.execute(
+            """
+            INSERT OR IGNORE INTO user_video_seen(user_id, category_id, seen_at)
+            VALUES(?,?,?)
+            """,
+            (user["id"], row["category_id"], now_iso()),
+        )
+        if cursor.rowcount:
+            marked += 1
+    db.commit()
+    return jsonify({"ok": True, "marked": marked})
 
 
 @app.get("/watch/<token>")
@@ -607,14 +696,18 @@ def admin_approve_request(request_id):
 @app.post("/admin/api/requests/<int:request_id>/reject")
 @admin_required
 def admin_reject_request(request_id):
+    reason = request.form.get("reason", "").strip()
+    if len(reason) < 5:
+        return jsonify({"ok": False, "message": "دلیل رد باید حداقل ۵ کاراکتر باشد."}), 400
+
     db = get_db()
     req = db.execute("SELECT * FROM purchase_requests WHERE id=?", (request_id,)).fetchone()
     if not req:
         return jsonify({"ok": False, "message": "درخواست پیدا نشد."}), 404
 
     db.execute(
-        "UPDATE purchase_requests SET status='rejected', reviewed_at=? WHERE id=?",
-        (now_iso(), request_id),
+        "UPDATE purchase_requests SET status='rejected', admin_note=?, reviewed_at=? WHERE id=?",
+        (reason, now_iso(), request_id),
     )
     db.commit()
     return jsonify({"ok": True})
@@ -691,20 +784,31 @@ def toggle_category_like():
     if not category:
         return jsonify({"ok": False, "message": "دسته پیدا نشد."}), 404
 
+    desired = payload.get("liked")
     existing = db.execute(
         "SELECT id FROM category_likes WHERE category_id=? AND device_id=?",
         (category_id, device_id),
     ).fetchone()
 
-    if existing:
-        db.execute("DELETE FROM category_likes WHERE id=?", (existing["id"],))
-        liked = False
+    if isinstance(desired, bool):
+        if desired and not existing:
+            db.execute(
+                "INSERT OR IGNORE INTO category_likes(category_id, device_id, created_at) VALUES(?,?,?)",
+                (category_id, device_id, now_iso()),
+            )
+        if (not desired) and existing:
+            db.execute("DELETE FROM category_likes WHERE id=?", (existing["id"],))
+        liked = desired
     else:
-        db.execute(
-            "INSERT INTO category_likes(category_id, device_id, created_at) VALUES(?,?,?)",
-            (category_id, device_id, now_iso()),
-        )
-        liked = True
+        if existing:
+            db.execute("DELETE FROM category_likes WHERE id=?", (existing["id"],))
+            liked = False
+        else:
+            db.execute(
+                "INSERT OR IGNORE INTO category_likes(category_id, device_id, created_at) VALUES(?,?,?)",
+                (category_id, device_id, now_iso()),
+            )
+            liked = True
 
     db.commit()
     count = db.execute(

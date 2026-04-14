@@ -29,6 +29,22 @@
     window.MX.ensureDeviceId = () => deviceId;
 
     registerVisit(deviceId);
+    const videosBadge = document.getElementById("my-videos-badge");
+    if (videosBadge) {
+      try {
+        const res = await fetch(`/api/my-videos/summary?device_id=${encodeURIComponent(deviceId)}`);
+        const data = await res.json();
+        if (res.ok && data.ok && data.total_categories > 0) {
+          const unseen = Number(data.unseen_categories || 0);
+          videosBadge.classList.remove("hidden");
+          videosBadge.textContent = String(unseen > 0 ? unseen : data.total_categories);
+          videosBadge.classList.toggle("is-red", unseen > 0);
+          videosBadge.classList.toggle("is-blue", unseen <= 0);
+        }
+      } catch (_err) {
+        // silent
+      }
+    }
 
     const reportForm = document.getElementById("report-form");
     const reportResult = document.getElementById("report-result");
