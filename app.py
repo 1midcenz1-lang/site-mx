@@ -231,15 +231,25 @@ def register_visit(device_id: str, db=None):
     if not device_id:
         return
     local_db = db or get_db()
+    should_commit = db is None
     existing = local_db.execute(
-        "SELECT id, visit_count FROM visitors WHERE device_id=?",
+        "SELECT id, visit_count, last_seen_at FROM visitors WHERE device_id=?",
         (device_id,),
     ).fetchone()
+    updated = False
     if existing:
-        local_db.execute(
-            "UPDATE visitors SET last_seen_at=?, visit_count=visit_count+1 WHERE id=?",
-            (now_iso(), existing["id"]),
-        )
+        try:
+            last_seen = datetime.fromisoformat(existing["last_seen_at"])
+        except Exception:
+            last_seen = None
+        now = datetime.utcnow()
+        should_update = last_seen is None or (now - last_seen).total_seconds() >= 120
+        if should_update:
+            local_db.execute(
+                "UPDATE visitors SET last_seen_at=?, visit_count=visit_count+1 WHERE id=?",
+                (now_iso(), existing["id"]),
+            )
+            updated = True
     else:
         local_db.execute(
             """
@@ -248,7 +258,9 @@ def register_visit(device_id: str, db=None):
             """,
             (device_id, None, now_iso(), now_iso(), 1),
         )
-    local_db.commit()
+        updated = True
+    if should_commit and updated:
+        local_db.commit()
 
 
 def admin_required(func):
