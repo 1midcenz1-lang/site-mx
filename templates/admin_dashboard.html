@@ -1,0 +1,209 @@
+﻿{% extends "base.html" %}
+{% block title %}داشبورد ادمین{% endblock %}
+{% block content %}
+<section class="topbar">
+  <h1>پنل ادمین</h1>
+  <a class="btn btn-ghost" href="/admin_logout">خروج</a>
+</section>
+
+<section class="grid-3">
+  <article class="card"><h3>کل بازدیدکننده‌ها</h3><p>{{ stats.total_visitors }}</p></article>
+  <article class="card"><h3>کل خریدها</h3><p>{{ stats.total_purchases }}</p></article>
+  <article class="card"><h3>کل ریپورت‌ها</h3><p>{{ stats.total_reports }}</p></article>
+</section>
+
+<section class="grid-2">
+  <article class="form-card">
+    <h2>افزودن دسته‌بندی</h2>
+    <form id="category-form">
+      <label>عنوان</label>
+      <input name="title" required />
+      <label>Slug (انگلیسی)</label>
+      <input name="slug" required />
+      <label>متن پرداخت</label>
+      <textarea name="payment_text" rows="5" required></textarea>
+      <button class="btn" type="submit">ثبت دسته</button>
+    </form>
+  </article>
+
+  <article class="form-card">
+    <h2>افزودن فایل ZIP</h2>
+    <form id="video-form" enctype="multipart/form-data">
+      <label>عنوان فایل</label>
+      <input name="title" required />
+      <label>دسته</label>
+      <select name="category_id" required>
+        {% for c in categories %}
+          <option value="{{ c.id }}">{{ c.title }} ({{ c.slug }})</option>
+        {% endfor %}
+      </select>
+      <label>فایل ZIP (اختیاری)</label>
+      <input type="file" name="video_file" accept=".zip,application/zip" />
+      <label>یا لینک دانلود (اختیاری)</label>
+      <input name="external_url" />
+      <button class="btn" type="submit">ثبت فایل</button>
+      <div id="upload-progress-wrap" class="upload-progress hidden">
+        <div class="upload-progress-head">
+          <span>در حال آپلود...</span>
+          <span id="upload-progress-text">0%</span>
+        </div>
+        <div class="upload-progress-track">
+          <div id="upload-progress-bar" class="upload-progress-bar"></div>
+        </div>
+      </div>
+    </form>
+  </article>
+</section>
+
+<section class="table-wrap">
+  <h2>درخواست‌های خرید</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>شناسه دستگاه</th>
+        <th>درخواست</th>
+        <th>فیش</th>
+        <th>وضعیت</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in requests_rows %}
+      <tr>
+        <td class="device-id">{{ r.device_id }}</td>
+        <td>{{ r.requested_category }}</td>
+        <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
+        <td>{{ r.status }}</td>
+        <td>
+          {% if r.status == 'pending' %}
+          <form class="approve-form" data-request-id="{{ r.id }}">
+            <div class="chips">
+              {% for c in categories %}
+                <label><input type="checkbox" name="category_ids" value="{{ c.id }}" {% if c.title == r.requested_category %}checked{% endif %} />{{ c.title }}</label>
+              {% endfor %}
+            </div>
+            <button class="btn small" type="submit">تایید</button>
+            <button class="btn btn-danger small reject-btn" type="button" data-request-id="{{ r.id }}">رد</button>
+          </form>
+          {% else %}
+          -
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="table-wrap">
+  <h2>لیست بازدیدکننده‌ها</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>شناسه دستگاه</th>
+        <th>خرید</th>
+        <th>ریپورت</th>
+        <th>بازدید</th>
+        <th>وضعیت</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in visitors %}
+      <tr>
+        <td class="device-id">{{ v.device_id }}</td>
+        <td>{{ "دارد" if v.purchase_count else "ندارد" }}</td>
+        <td>{{ "دارد" if v.report_count else "ندارد" }}</td>
+        <td>{{ v.visit_count }}</td>
+        <td>{{ "بن" if v.is_banned else "فعال" }}</td>
+        <td>
+          {% if v.is_banned %}
+            <button class="btn small btn-ghost unban-btn" data-visitor-id="{{ v.id }}" type="button">آن‌بن</button>
+          {% else %}
+            <button class="btn small btn-danger ban-btn" data-visitor-id="{{ v.id }}" type="button">بن</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="table-wrap">
+  <h2>لیست دسته‌بندی‌ها</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>عنوان</th>
+        <th>Slug</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td>{{ c.id }}</td>
+        <td>{{ c.title }}</td>
+        <td>{{ c.slug }}</td>
+        <td><button class="btn small btn-danger delete-category-btn" data-category-id="{{ c.id }}" type="button">حذف</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="table-wrap">
+  <h2>لیست فایل‌ها</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>عنوان</th>
+        <th>دسته</th>
+        <th>نوع</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in videos %}
+      <tr>
+        <td>{{ v.id }}</td>
+        <td>{{ v.title }}</td>
+        <td>{{ v.category_title }}</td>
+        <td>{{ v.source_type }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="table-wrap">
+  <h2>ریپورت‌های کاربران</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>شناسه دستگاه</th>
+        <th>دسته</th>
+        <th>متن</th>
+        <th>زمان</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rp in reports %}
+      <tr>
+        <td class="device-id">{{ rp.device_id }}</td>
+        <td>{{ rp.report_type }}</td>
+        <td>{{ rp.report_text }}</td>
+        <td>{{ rp.created_at }}</td>
+        <td><button class="btn small btn-danger report-ban-btn" data-device-id="{{ rp.device_id }}" type="button">بن</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/admin.js"></script>
+{% endblock %}

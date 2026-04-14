@@ -1,0 +1,24 @@
+﻿{% extends "base.html" %}
+{% block title %}ورود ادمین{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>ورود پنل ادمین</h1>
+</section>
+
+<form class="form-card" method="post">
+  <label>نام کاربری</label>
+  <input name="username" required />
+
+  <label>رمز عبور</label>
+  <input name="password" type="password" required />
+
+  <button class="btn" type="submit">ورود</button>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="result-box error">{{ messages[0] }}</div>
+    {% endif %}
+  {% endwith %}
+</form>
+{% endblock %}
+

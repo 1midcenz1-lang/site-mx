@@ -1,0 +1,44 @@
+﻿<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}MX Video{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <main class="container">
+    {% if not request.path.startswith('/admin') %}
+    <section class="quick-links form-card">
+      <a class="btn" href="/">دریافت ویدیو</a>
+      <a class="btn btn-ghost" href="/my-videos">مشاهده ویدیوهای من</a>
+    </section>
+    {% endif %}
+    {% block content %}{% endblock %}
+
+    {% if not request.path.startswith('/admin') %}
+    <button id="report-toggle" class="report-fab" type="button" aria-label="ریپورت"><span>🚩</span><span>ریپورت</span></button>
+    <section id="report-panel" class="form-card report-box hidden">
+      <h3>ریپورت محتوا</h3>
+      <form id="report-form">
+        <input type="hidden" name="device_id" id="report_device_id" />
+        <label>دسته‌بندی ریپورت</label>
+        <select name="report_type" required>
+          <option value="مستحجن">مستحجن</option>
+          <option value="کلاهبرداری">کلاهبرداری</option>
+        </select>
+        <label>توضیحات</label>
+        <textarea name="report_text" rows="3" required></textarea>
+        <button class="btn btn-danger" type="submit">ارسال ریپورت</button>
+      </form>
+      <div id="report-result" class="result-box"></div>
+    </section>
+
+    {% endif %}
+  </main>
+  {% if not request.path.startswith('/admin') %}
+  <script src="/static/js/common.js?v=2"></script>
+  {% endif %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>
