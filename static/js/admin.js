@@ -4,6 +4,30 @@
   const progressWrap = document.getElementById("upload-progress-wrap");
   const progressBar = document.getElementById("upload-progress-bar");
   const progressText = document.getElementById("upload-progress-text");
+  const statNodes = document.querySelectorAll("[data-stat-key]");
+  let lastPurchaseId = 0;
+  let lastReportId = 0;
+
+  function setStat(key, value) {
+    const el = document.querySelector(`[data-stat-key='${key}']`);
+    if (!el) return;
+    el.textContent = String(value);
+  }
+
+  function notifyAdmin(title, body) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+      return;
+    }
+    if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          new Notification(title, { body });
+        }
+      });
+    }
+  }
 
   if (categoryForm) {
     categoryForm.addEventListener("submit", async (e) => {
@@ -31,6 +55,21 @@
         return;
       }
       alert("دسته حذف شد");
+      window.location.reload();
+    });
+  });
+
+  document.querySelectorAll(".delete-video-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("این فایل حذف شود؟")) return;
+      const id = btn.dataset.videoId;
+      const res = await fetch(`/admin/api/videos/${id}/delete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در حذف فایل");
+        return;
+      }
+      alert("فایل حذف شد");
       window.location.reload();
     });
   });
@@ -192,4 +231,38 @@
       window.location.reload();
     });
   });
+
+  if (statNodes.length > 0) {
+    let primed = false;
+    setInterval(async () => {
+      try {
+        const res = await fetch("/admin/api/live-stats");
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const stats = data.stats || {};
+        Object.keys(stats).forEach((key) => {
+          if (key === "latest_purchase_id" || key === "latest_report_id") return;
+          setStat(key, stats[key]);
+        });
+        const latestPurchase = Number(stats.latest_purchase_id || 0);
+        const latestReport = Number(stats.latest_report_id || 0);
+        if (!primed) {
+          lastPurchaseId = latestPurchase;
+          lastReportId = latestReport;
+          primed = true;
+          return;
+        }
+        if (latestPurchase > lastPurchaseId) {
+          notifyAdmin("درخواست خرید جدید", `${latestPurchase - lastPurchaseId} خرید جدید ثبت شد.`);
+          lastPurchaseId = latestPurchase;
+        }
+        if (latestReport > lastReportId) {
+          notifyAdmin("ریپورت جدید", `${latestReport - lastReportId} ریپورت جدید ثبت شد.`);
+          lastReportId = latestReport;
+        }
+      } catch (_err) {
+        // silent
+      }
+    }, 10000);
+  }
 })();

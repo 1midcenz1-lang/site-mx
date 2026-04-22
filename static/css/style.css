@@ -163,6 +163,7 @@ th { background: rgba(30, 41, 59, 0.75); }
 .device-id { font-family: monospace; font-size: 12px; }
 .table-wrap { overflow-x: auto; }
 .buyer-scroll-box { max-height: 760px; overflow-y: auto; }
+.scroll-box { max-height: 520px; overflow-y: auto; }
 
 .testimonial-strip {
   display: flex;

@@ -7,16 +7,16 @@
 </section>
 
 <section class="grid-3">
-  <article class="card"><h3>کل بازدیدکننده‌ها</h3><p>{{ stats.total_visitors }}</p></article>
-  <article class="card"><h3>کل خریدها</h3><p>{{ stats.total_purchases }}</p></article>
-  <article class="card"><h3>کل ریپورت‌ها</h3><p>{{ stats.total_reports }}</p></article>
-  <article class="card"><h3>آنلاین لحظه‌ای</h3><p>{{ stats.online_total }}</p></article>
-  <article class="card"><h3>درحال دانلود</h3><p>{{ stats.downloading_now }}</p></article>
-  <article class="card"><h3>فیش تایید شده</h3><p>{{ stats.approved_receipts }}</p></article>
-  <article class="card"><h3>فیش رد شده</h3><p>{{ stats.rejected_receipts }}</p></article>
+  <article class="card"><h3>کل بازدیدکننده‌ها</h3><p data-stat-key="total_visitors">{{ stats.total_visitors }}</p></article>
+  <article class="card"><h3>کل خریدها</h3><p data-stat-key="total_purchases">{{ stats.total_purchases }}</p></article>
+  <article class="card"><h3>کل ریپورت‌ها</h3><p data-stat-key="total_reports">{{ stats.total_reports }}</p></article>
+  <article class="card"><h3>آنلاین لحظه‌ای</h3><p data-stat-key="online_total">{{ stats.online_total }}</p></article>
+  <article class="card"><h3>درحال دانلود</h3><p data-stat-key="downloading_now">{{ stats.downloading_now }}</p></article>
+  <article class="card"><h3>فیش تایید شده</h3><p data-stat-key="approved_receipts">{{ stats.approved_receipts }}</p></article>
+  <article class="card"><h3>فیش رد شده</h3><p data-stat-key="rejected_receipts">{{ stats.rejected_receipts }}</p></article>
 </section>
 
-<section class="table-wrap">
+<section class="table-wrap scroll-box">
   <h2>آنلاین در هر صفحه</h2>
   <table>
     <thead><tr><th>صفحه</th><th>تعداد آنلاین</th></tr></thead>
@@ -71,7 +71,7 @@
   </article>
 </section>
 
-<section class="table-wrap">
+<section class="table-wrap scroll-box">
   <h2>درخواست‌های خرید</h2>
   <table>
     <thead>
@@ -119,24 +119,57 @@
   </table>
 </section>
 
-<section class="table-wrap buyer-scroll-box">
-  <h2>لیست خریداران (حداکثر ۲۰ ردیف قابل مشاهده)</h2>
+<section class="table-wrap scroll-box">
+  <h2>لیست دسته‌بندی‌ها</h2>
   <table>
-    <thead><tr><th>کاربر</th><th>شناسه دستگاه</th><th>دسته</th><th>زمان خرید (ایران)</th></tr></thead>
-    <tbody>
-      {% for b in buyers %}
+    <thead>
       <tr>
-        <td>کاربر {{ b.user_id }}</td>
-        <td class="device-id">{{ b.device_id }}</td>
-        <td>{{ b.category_title }}</td>
-        <td>{{ b.created_at_fa }}</td>
+        <th>ID</th>
+        <th>عنوان</th>
+        <th>Slug</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td>{{ c.id }}</td>
+        <td>{{ c.title }}</td>
+        <td>{{ c.slug }}</td>
+        <td><button class="btn small btn-danger delete-category-btn" data-category-id="{{ c.id }}" type="button">حذف</button></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </section>
 
-<section class="table-wrap">
+<section class="table-wrap scroll-box">
+  <h2>لیست فایل‌ها</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>عنوان</th>
+        <th>دسته</th>
+        <th>نوع</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in videos %}
+      <tr>
+        <td>{{ v.id }}</td>
+        <td>{{ v.title }}</td>
+        <td>{{ v.category_title }}</td>
+        <td>{{ v.source_type }}</td>
+        <td><button class="btn small btn-danger delete-video-btn" data-video-id="{{ v.id }}" type="button">حذف</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="table-wrap scroll-box">
   <h2>ریپورت‌های کاربران</h2>
   <table>
     <thead>

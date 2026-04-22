@@ -85,7 +85,8 @@ def format_tehran(iso_value: str | None) -> str:
         return iso_value
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-    return dt.astimezone(TEHRAN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=18, minutes=30)
+    return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -277,18 +278,49 @@ def init_db():
     if "replied_at" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN replied_at TEXT")
 
+    seed_texts = [
+        "خیلی سریع تایید شد و لینک‌ها عالی بود 👌",
+        "کیفیت ویدیوها واقعا خوب بود.",
+        "پشتیبانی محترمانه جواب داد و مشکل حل شد.",
+        "خرید راحت بود و روندش مشخص بود.",
+        "روی گوشی بدون دردسر باز شد 🙌",
+        "از سرعت دانلود راضی بودم.",
+        "دسته‌بندی‌ها کامل و مرتب بودن.",
+        "فایل‌ها سالم و بدون خرابی بودن.",
+        "تجربه خرید من خوب و سریع بود.",
+        "کیفیت نسبت به هزینه خیلی مناسب بود.",
+        "دسترسی بعد تایید خیلی سریع فعال شد.",
+        "ممنون بابت پاسخ‌گویی سریع پشتیبانی 🌟",
+        "پرداخت و ارسال فیش خیلی راحت انجام شد.",
+        "روی اینترنت ضعیف هم دانلود شدنی بود.",
+        "مرتب‌سازی محتوا خیلی کمک‌کننده بود.",
+        "نسبت به سایت‌های مشابه تجربه بهتری بود.",
+        "برای خرید آنلاین محتوای مجاز تجربه خوبی داشتم.",
+        "صفحه‌ها سبک بودن و سریع بالا میان.",
+        "لینک‌ها درست کار می‌کردن و خطا ندادن.",
+        "در کل تجربه خرید رضایت‌بخش بود 🙂",
+    ]
     seed_count = cursor.execute("SELECT COUNT(*) AS c FROM testimonials WHERE is_seed=1").fetchone()["c"]
     if seed_count == 0:
         for idx in range(1, 101):
+            seed_text = seed_texts[(idx - 1) % len(seed_texts)]
             cursor.execute(
                 "INSERT INTO testimonials(user_id,display_name,content,is_seed,created_at) VALUES(?,?,?,?,?)",
                 (
                     None,
                     f"کاربر {2000 + idx}",
-                    f"کیفیت فایل‌ها خیلی خوب بود و سریع تحویل گرفتم ✨ #{idx}",
+                    f"{seed_text} (نظر {idx})",
                     1,
                     now_iso(),
                 ),
+            )
+    else:
+        seed_rows = cursor.execute("SELECT id FROM testimonials WHERE is_seed=1 ORDER BY id LIMIT 100").fetchall()
+        for idx, row in enumerate(seed_rows, start=1):
+            seed_text = seed_texts[(idx - 1) % len(seed_texts)]
+            cursor.execute(
+                "UPDATE testimonials SET display_name=?, content=? WHERE id=?",
+                (f"کاربر {2000 + idx}", f"{seed_text} (نظر {idx})", row["id"]),
             )
     db.commit()
     db.close()
@@ -780,17 +812,6 @@ def admin_dashboard():
     visitors = db.execute(
         "SELECT * FROM visitors ORDER BY last_seen_at DESC LIMIT 500"
     ).fetchall()
-    buyers = db.execute(
-        """
-        SELECT pr.id, pr.created_at, u.id AS user_id, u.device_id, c.title AS category_title
-        FROM purchase_requests pr
-        JOIN users u ON u.id = pr.user_id
-        JOIN categories c ON c.id = pr.requested_category_id
-        WHERE pr.status='approved'
-        ORDER BY pr.id DESC LIMIT 120
-        """
-    ).fetchall()
-
     online_total = db.execute(
         "SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions"
     ).fetchone()["c"]
@@ -829,12 +850,6 @@ def admin_dashboard():
         row_dict["created_at_fa"] = format_tehran(row["created_at"])
         row_dict["replied_at_fa"] = format_tehran(row["replied_at"])
         reports_view.append(row_dict)
-    buyers_view = []
-    for row in buyers:
-        row_dict = dict(row)
-        row_dict["created_at_fa"] = format_tehran(row["created_at"])
-        buyers_view.append(row_dict)
-
     return render_template(
         "admin_dashboard.html",
         requests_rows=requests_rows_view,
@@ -842,7 +857,6 @@ def admin_dashboard():
         videos=videos,
         reports=reports_view,
         visitors=visitors,
-        buyers=buyers_view,
         online_by_page=online_by_page,
         stats=stats,
     )
@@ -1119,6 +1133,26 @@ def admin_delete_category(category_id):
     return jsonify({"ok": True})
 
 
+@app.post("/admin/api/videos/<int:video_id>/delete")
+@admin_required
+def admin_delete_video(video_id):
+    db = get_db()
+    video = db.execute("SELECT * FROM videos WHERE id=?", (video_id,)).fetchone()
+    if not video:
+        return jsonify({"ok": False, "message": "فایل پیدا نشد."}), 404
+
+    if video["file_path"]:
+        full = os.path.join(VIDEOS_DIR, video["file_path"])
+        if os.path.exists(full):
+            try:
+                os.remove(full)
+            except OSError:
+                pass
+    db.execute("DELETE FROM videos WHERE id=?", (video_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.post("/admin/api/videos")
 @admin_required
 def admin_create_video():
@@ -1203,6 +1237,25 @@ def admin_ban_by_device():
     db.execute("UPDATE users SET is_banned=1 WHERE device_id=?", (device_id,))
     db.commit()
     return jsonify({"ok": True})
+
+
+@app.get("/admin/api/live-stats")
+@admin_required
+def admin_live_stats():
+    db = get_db()
+    cleanup_live_sessions(db)
+    stats = {
+        "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
+        "total_purchases": db.execute("SELECT COUNT(*) AS c FROM purchase_requests").fetchone()["c"],
+        "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
+        "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
+        "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "online_total": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions").fetchone()["c"],
+        "downloading_now": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions").fetchone()["c"],
+        "latest_purchase_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM purchase_requests").fetchone()["m"],
+        "latest_report_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM reports").fetchone()["m"],
+    }
+    return jsonify({"ok": True, "stats": stats})
 
 
 @app.post("/admin/api/reports/<int:report_id>/reply")
