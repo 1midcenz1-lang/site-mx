@@ -120,6 +120,20 @@
     });
   });
 
+  document.querySelectorAll(".reset-pending-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const rid = btn.dataset.requestId;
+      const res = await fetch(`/admin/api/requests/${rid}/reset-pending`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در بازگشت به pending");
+        return;
+      }
+      alert("وضعیت به pending برگشت.");
+      window.location.reload();
+    });
+  });
+
   document.querySelectorAll(".ban-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.visitorId;
@@ -159,6 +173,22 @@
         return;
       }
       alert("کاربر گزارش‌دهنده بن شد");
+      window.location.reload();
+    });
+  });
+
+  document.querySelectorAll(".reply-form").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const rid = form.dataset.reportId;
+      const fd = new FormData(form);
+      const res = await fetch(`/admin/api/reports/${rid}/reply`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در ثبت پاسخ");
+        return;
+      }
+      alert("پاسخ ثبت شد");
       window.location.reload();
     });
   });

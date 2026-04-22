@@ -33,6 +33,19 @@
     }
   }
 
+  async function sendPresence(deviceId) {
+    const pageKey = window.location.pathname || "/";
+    try {
+      await fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId, page_key: pageKey }),
+      });
+    } catch (_err) {
+      // silent
+    }
+  }
+
   async function setup() {
     const onboard = await initDevice();
     const deviceId = onboard.deviceId;
@@ -42,6 +55,8 @@
     window.MX.ensureDeviceId = () => deviceId;
 
     registerVisit(deviceId);
+    sendPresence(deviceId);
+    setInterval(() => sendPresence(deviceId), 30000);
     const videosBadge = document.getElementById("my-videos-badge");
     if (videosBadge) {
       try {
@@ -64,6 +79,7 @@
     const reportDeviceInput = document.getElementById("report_device_id");
     const reportPanel = document.getElementById("report-panel");
     const reportToggle = document.getElementById("report-toggle");
+    const reportReplies = document.getElementById("report-replies");
 
     if (reportDeviceInput) reportDeviceInput.value = deviceId;
 
@@ -101,6 +117,21 @@
           reportResult.textContent = "خطای ارتباط با سرور";
         }
       });
+    }
+
+    if (reportReplies) {
+      try {
+        const res = await fetch(`/api/my-report-replies?device_id=${encodeURIComponent(deviceId)}`);
+        const data = await res.json();
+        if (res.ok && data.ok && data.items && data.items.length) {
+          reportReplies.classList.remove("hidden");
+          reportReplies.textContent = data.items
+            .map((item) => `${item.report_type} | ${item.created_at}\n${item.report_text}\nپاسخ ادمین (${item.replied_at}): ${item.admin_reply}`)
+            .join("\n\n------------------\n\n");
+        }
+      } catch (_err) {
+        // silent
+      }
     }
   }
 

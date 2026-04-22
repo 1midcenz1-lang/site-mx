@@ -33,6 +33,7 @@ body {
 }
 .hero h1 { margin: 0 0 8px; font-size: 30px; }
 .hero p { margin: 0; color: var(--muted); }
+.muted { color: var(--muted); }
 
 .cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .card, .form-card, .table-wrap {
@@ -161,6 +162,32 @@ th, td { border: 1px solid var(--line); padding: 8px; text-align: right; vertica
 th { background: rgba(30, 41, 59, 0.75); }
 .device-id { font-family: monospace; font-size: 12px; }
 .table-wrap { overflow-x: auto; }
+.buyer-scroll-box { max-height: 760px; overflow-y: auto; }
+
+.testimonial-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+}
+.testimonial-card {
+  min-width: 280px;
+  max-width: 340px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  scroll-snap-align: start;
+}
+.testimonial-card h4 {
+  margin: 0 0 8px;
+}
+.testimonial-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .chips label { margin: 0; background: rgba(30, 41, 59, 0.7); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
