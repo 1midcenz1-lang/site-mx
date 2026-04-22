@@ -1,0 +1,102 @@
+﻿{% extends "base.html" %}
+{% block title %}خانه{% endblock %}
+{% block content %}
+<section class="hero hero-glass">
+  <h1>دریافت اشتراک فایل‌ها</h1>
+  <p>دسته‌بندی دلخواهت را انتخاب کن و برای دریافت فایل این دسته‌بندی درخواست ثبت کن.</p>
+</section>
+
+<section class="table-wrap">
+  <h2>دسته‌بندی‌های قابل مشاهده</h2>
+  {% if categories %}
+  <div class="cards">
+    {% for c in categories %}
+    <article class="card category-card" data-category-id="{{ c.id }}" data-category-slug="{{ c.slug }}">
+      <div class="category-head">
+        <h3>{{ c.title }}</h3>
+        <button class="like-btn" type="button" aria-label="لایک">
+          <span class="like-icon">♡</span>
+          <span class="like-text">لایک</span><span class="like-count">0</span>
+        </button>
+      </div>
+      <p>شناسه: {{ c.slug }}</p>
+      <a class="btn" href="/buy/{{ c.slug }}">دریافت فایل این دسته‌بندی</a>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="placeholder">هنوز هیچ دسته‌ای توسط ادمین ساخته نشده است.</div>
+  {% endif %}
+</section>
+
+<section class="footer-action">
+  <a class="btn btn-ghost" href="/my-videos">ورود به فایل‌های من</a>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const cards = document.querySelectorAll(".category-card");
+    const deviceId = (window.MX && window.MX.ensureDeviceId && window.MX.ensureDeviceId())
+      || localStorage.getItem("mx_device_id")
+      || crypto.randomUUID();
+    localStorage.setItem("mx_device_id", deviceId);
+    const liked = new Set();
+
+    function renderCard(card, isLiked, countValue) {
+      const btn = card.querySelector(".like-btn");
+      const icon = card.querySelector(".like-icon");
+      const text = card.querySelector(".like-text");
+      const count = card.querySelector(".like-count");
+      if (!btn || !icon || !text || !count) return;
+      btn.classList.toggle("active", isLiked);
+      icon.textContent = isLiked ? "❤" : "♡";
+      text.textContent = isLiked ? "لایک شده" : "لایک";
+      count.textContent = `(${countValue || 0})`;
+    }
+
+    async function loadLikes() {
+      const res = await fetch(`/api/category-likes?device_id=${encodeURIComponent(deviceId)}`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) return;
+      liked.clear();
+      (data.liked || []).forEach((id) => liked.add(String(id)));
+      cards.forEach((card) => {
+        const id = card.dataset.categoryId;
+        if (!id) return;
+        renderCard(card, liked.has(id), (data.counts || {})[id] || 0);
+      });
+    }
+
+    cards.forEach((card) => {
+      const id = card.dataset.categoryId;
+      const btn = card.querySelector(".like-btn");
+      if (!btn) return;
+      if (!id) return;
+      let inFlight = false;
+      btn.addEventListener("click", () => {
+        if (inFlight) return;
+        inFlight = true;
+        const nextLiked = !liked.has(String(id));
+        fetch("/api/category-likes/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category_id: Number(id), device_id: deviceId, liked: nextLiked }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data.ok) return;
+            if (data.liked) liked.add(String(id));
+            else liked.delete(String(id));
+            renderCard(card, data.liked, data.count || 0);
+          })
+          .finally(() => {
+            inFlight = false;
+          });
+      });
+    });
+    loadLikes();
+  })();
+</script>
+{% endblock %}
