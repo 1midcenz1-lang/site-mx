@@ -5,8 +5,11 @@
   const progressBar = document.getElementById("upload-progress-bar");
   const progressText = document.getElementById("upload-progress-text");
   const statNodes = document.querySelectorAll("[data-stat-key]");
+  const notifToggleBtn = document.getElementById("notif-toggle-btn");
   let lastPurchaseId = 0;
   let lastReportId = 0;
+  const NOTIF_KEY = "mx_admin_notif_enabled";
+  let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
 
   function setStat(key, value) {
     const el = document.querySelector(`[data-stat-key='${key}']`);
@@ -15,6 +18,7 @@
   }
 
   function notifyAdmin(title, body) {
+    if (!notificationsEnabled) return;
     if (!("Notification" in window)) return;
     if (Notification.permission === "granted") {
       new Notification(title, { body });
@@ -27,6 +31,28 @@
         }
       });
     }
+  }
+
+  function renderNotifToggle() {
+    if (!notifToggleBtn) return;
+    notifToggleBtn.textContent = notificationsEnabled ? "نوتیف: روشن" : "نوتیف: خاموش";
+    notifToggleBtn.classList.toggle("btn-danger", notificationsEnabled);
+  }
+
+  if (notifToggleBtn) {
+    renderNotifToggle();
+    notifToggleBtn.addEventListener("click", async () => {
+      if (!notificationsEnabled && "Notification" in window && Notification.permission !== "granted") {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") {
+          alert("اجازه نوتیف داده نشد.");
+          return;
+        }
+      }
+      notificationsEnabled = !notificationsEnabled;
+      localStorage.setItem(NOTIF_KEY, notificationsEnabled ? "1" : "0");
+      renderNotifToggle();
+    });
   }
 
   if (categoryForm) {

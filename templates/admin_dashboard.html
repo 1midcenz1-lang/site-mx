@@ -3,7 +3,10 @@
 {% block content %}
 <section class="topbar">
   <h1>پنل ادمین</h1>
-  <a class="btn btn-ghost" href="/admin_logout">خروج</a>
+  <div class="topbar-actions">
+    <button id="notif-toggle-btn" class="btn btn-ghost" type="button">نوتیف: خاموش</button>
+    <a class="btn btn-ghost" href="/admin_logout">خروج</a>
+  </div>
 </section>
 
 <section class="grid-3">

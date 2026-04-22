@@ -279,31 +279,14 @@ def init_db():
         cursor.execute("ALTER TABLE reports ADD COLUMN replied_at TEXT")
 
     seed_texts = [
-        "خیلی سریع تایید شد و لینک‌ها عالی بود 👌",
-        "کیفیت ویدیوها واقعا خوب بود.",
-        "پشتیبانی محترمانه جواب داد و مشکل حل شد.",
-        "خرید راحت بود و روندش مشخص بود.",
-        "روی گوشی بدون دردسر باز شد 🙌",
-        "از سرعت دانلود راضی بودم.",
-        "دسته‌بندی‌ها کامل و مرتب بودن.",
-        "فایل‌ها سالم و بدون خرابی بودن.",
-        "تجربه خرید من خوب و سریع بود.",
-        "کیفیت نسبت به هزینه خیلی مناسب بود.",
-        "دسترسی بعد تایید خیلی سریع فعال شد.",
-        "ممنون بابت پاسخ‌گویی سریع پشتیبانی 🌟",
-        "پرداخت و ارسال فیش خیلی راحت انجام شد.",
-        "روی اینترنت ضعیف هم دانلود شدنی بود.",
-        "مرتب‌سازی محتوا خیلی کمک‌کننده بود.",
-        "نسبت به سایت‌های مشابه تجربه بهتری بود.",
-        "برای خرید آنلاین محتوای مجاز تجربه خوبی داشتم.",
-        "صفحه‌ها سبک بودن و سریع بالا میان.",
-        "لینک‌ها درست کار می‌کردن و خطا ندادن.",
-        "در کل تجربه خرید رضایت‌بخش بود 🙂",
+        f"نظر {i}: کیفیت فایل‌ها خوب بود و خرید راحت انجام شد."
+        if i % 5 != 0
+        else f"نظر {i}: پشتیبانی سریع جواب داد و تجربه کاربری عالی بود ✨"
+        for i in range(1, 101)
     ]
     seed_count = cursor.execute("SELECT COUNT(*) AS c FROM testimonials WHERE is_seed=1").fetchone()["c"]
     if seed_count == 0:
-        for idx in range(1, 101):
-            seed_text = seed_texts[(idx - 1) % len(seed_texts)]
+        for idx, seed_text in enumerate(seed_texts, start=1):
             cursor.execute(
                 "INSERT INTO testimonials(user_id,display_name,content,is_seed,created_at) VALUES(?,?,?,?,?)",
                 (
@@ -317,7 +300,7 @@ def init_db():
     else:
         seed_rows = cursor.execute("SELECT id FROM testimonials WHERE is_seed=1 ORDER BY id LIMIT 100").fetchall()
         for idx, row in enumerate(seed_rows, start=1):
-            seed_text = seed_texts[(idx - 1) % len(seed_texts)]
+            seed_text = seed_texts[idx - 1]
             cursor.execute(
                 "UPDATE testimonials SET display_name=?, content=? WHERE id=?",
                 (f"کاربر {2000 + idx}", f"{seed_text} (نظر {idx})", row["id"]),
