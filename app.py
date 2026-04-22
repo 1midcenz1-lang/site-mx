@@ -1,7 +1,8 @@
 ﻿import os
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from functools import wraps
 
 from flask import (
@@ -64,6 +65,28 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-now")
 app.config["ADMIN_USER"] = os.environ.get("ADMIN_USER", "admin")
 app.config["ADMIN_PASS"] = os.environ.get("ADMIN_PASS", "mx9091")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 1GB
+
+
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+ONLINE_SECONDS = 120
+DOWNLOAD_ACTIVE_SECONDS = 180
+
+
+def tehran_now_iso() -> str:
+    return datetime.now(TEHRAN_TZ).isoformat()
+
+
+def format_tehran(iso_value: str | None) -> str:
+    if not iso_value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(iso_value)
+    except Exception:
+        return iso_value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=18, minutes=30)
+    return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -167,10 +190,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_id TEXT NOT NULL,
+            user_id INTEGER,
             reporter_name TEXT,
             report_type TEXT NOT NULL,
             report_text TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            admin_reply TEXT,
+            replied_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
         );
 
         CREATE TABLE IF NOT EXISTS category_likes (
@@ -192,6 +219,32 @@ def init_db():
             FOREIGN KEY (category_id) REFERENCES categories(id)
         );
 
+        CREATE TABLE IF NOT EXISTS presence_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            page_key TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(device_id, page_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS download_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            user_id INTEGER,
+            video_id INTEGER,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS testimonials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            display_name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            is_seed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_purchase_requests_user_status
             ON purchase_requests(user_id, status, id);
         CREATE INDEX IF NOT EXISTS idx_purchase_requests_user_created
@@ -202,6 +255,10 @@ def init_db():
             ON videos(category_id, id);
         CREATE INDEX IF NOT EXISTS idx_category_likes_category
             ON category_likes(category_id);
+        CREATE INDEX IF NOT EXISTS idx_presence_updated
+            ON presence_sessions(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_download_updated
+            ON download_sessions(updated_at);
         """
     )
 
@@ -214,7 +271,40 @@ def init_db():
     report_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(reports)").fetchall()]
     if "reporter_name" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN reporter_name TEXT")
+    if "user_id" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN user_id INTEGER")
+    if "admin_reply" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN admin_reply TEXT")
+    if "replied_at" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN replied_at TEXT")
 
+    seed_texts = [
+        f"نظر {i}: کیفیت فایل‌ها خوب بود و خرید راحت انجام شد."
+        if i % 5 != 0
+        else f"نظر {i}: پشتیبانی سریع جواب داد و تجربه کاربری عالی بود ✨"
+        for i in range(1, 101)
+    ]
+    seed_count = cursor.execute("SELECT COUNT(*) AS c FROM testimonials WHERE is_seed=1").fetchone()["c"]
+    if seed_count == 0:
+        for idx, seed_text in enumerate(seed_texts, start=1):
+            cursor.execute(
+                "INSERT INTO testimonials(user_id,display_name,content,is_seed,created_at) VALUES(?,?,?,?,?)",
+                (
+                    None,
+                    f"کاربر {2000 + idx}",
+                    f"{seed_text} (نظر {idx})",
+                    1,
+                    now_iso(),
+                ),
+            )
+    else:
+        seed_rows = cursor.execute("SELECT id FROM testimonials WHERE is_seed=1 ORDER BY id LIMIT 100").fetchall()
+        for idx, row in enumerate(seed_rows, start=1):
+            seed_text = seed_texts[idx - 1]
+            cursor.execute(
+                "UPDATE testimonials SET display_name=?, content=? WHERE id=?",
+                (f"کاربر {2000 + idx}", f"{seed_text} (نظر {idx})", row["id"]),
+            )
     db.commit()
     db.close()
 
@@ -263,6 +353,13 @@ def register_visit(device_id: str, db=None):
         local_db.commit()
 
 
+def cleanup_live_sessions(db):
+    cutoff = (datetime.utcnow() - timedelta(seconds=DOWNLOAD_ACTIVE_SECONDS)).isoformat()
+    db.execute("DELETE FROM download_sessions WHERE updated_at < ?", (cutoff,))
+    presence_cutoff = (datetime.utcnow() - timedelta(seconds=ONLINE_SECONDS)).isoformat()
+    db.execute("DELETE FROM presence_sessions WHERE updated_at < ?", (presence_cutoff,))
+
+
 def admin_required(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -277,7 +374,10 @@ def admin_required(func):
 def home():
     db = get_db()
     categories = db.execute("SELECT * FROM categories ORDER BY id").fetchall()
-    return render_template("home.html", categories=categories)
+    testimonials = db.execute(
+        "SELECT display_name, content, created_at FROM testimonials ORDER BY id DESC LIMIT 160"
+    ).fetchall()
+    return render_template("home.html", categories=categories, testimonials=testimonials)
 
 
 @app.route("/samples/<slug>")
@@ -307,6 +407,28 @@ def api_register_visit():
     ).fetchone()
     if visitor and visitor["is_banned"]:
         return jsonify({"ok": False, "message": "این دستگاه مسدود شده است."}), 403
+    return jsonify({"ok": True})
+
+
+@app.post("/api/presence")
+def api_presence():
+    payload = request.get_json(silent=True) or {}
+    device_id = (payload.get("device_id") or "").strip()
+    page_key = (payload.get("page_key") or "unknown").strip()[:80]
+    if not device_id:
+        return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
+    db = get_db()
+    register_visit(device_id, db=db)
+    cleanup_live_sessions(db)
+    db.execute(
+        """
+        INSERT INTO presence_sessions(device_id, page_key, updated_at)
+        VALUES(?,?,?)
+        ON CONFLICT(device_id, page_key) DO UPDATE SET updated_at=excluded.updated_at
+        """,
+        (device_id, page_key or "unknown", now_iso()),
+    )
+    db.commit()
     return jsonify({"ok": True})
 
 
@@ -596,6 +718,13 @@ def watch_video(token):
     if not row:
         abort(404)
 
+    cleanup_live_sessions(db)
+    db.execute(
+        "INSERT INTO download_sessions(device_id, user_id, video_id, updated_at) VALUES(?,?,?,?)",
+        (device_id, payload.get("uid"), payload.get("vid"), now_iso()),
+    )
+    db.commit()
+
     if row["source_type"] == "url":
         return redirect(row["external_url"])
 
@@ -634,9 +763,10 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     db = get_db()
+    cleanup_live_sessions(db)
     requests_rows = db.execute(
         """
-        SELECT pr.*, u.device_id, c.title as requested_category
+        SELECT pr.*, u.id AS user_id, u.device_id, c.title as requested_category
         FROM purchase_requests pr
         JOIN users u ON u.id = pr.user_id
         JOIN categories c ON c.id = pr.requested_category_id
@@ -655,24 +785,62 @@ def admin_dashboard():
     ).fetchall()
 
     reports = db.execute(
-        "SELECT * FROM reports ORDER BY id DESC LIMIT 300"
+        """
+        SELECT r.*, u.id AS user_id
+        FROM reports r
+        LEFT JOIN users u ON u.id = r.user_id
+        ORDER BY r.id DESC LIMIT 300
+        """
     ).fetchall()
     visitors = db.execute(
         "SELECT * FROM visitors ORDER BY last_seen_at DESC LIMIT 500"
     ).fetchall()
+    online_total = db.execute(
+        "SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions"
+    ).fetchone()["c"]
+    downloading_now = db.execute(
+        "SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions"
+    ).fetchone()["c"]
+    online_by_page_rows = db.execute(
+        """
+        SELECT page_key, COUNT(DISTINCT device_id) AS c
+        FROM presence_sessions
+        GROUP BY page_key
+        ORDER BY c DESC, page_key ASC
+        """
+    ).fetchall()
+    online_by_page = {row["page_key"]: row["c"] for row in online_by_page_rows}
+
     stats = {
         "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
         "total_purchases": db.execute("SELECT COUNT(*) AS c FROM purchase_requests").fetchone()["c"],
         "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
+        "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
+        "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "online_total": online_total,
+        "downloading_now": downloading_now,
     }
 
+    requests_rows_view = []
+    for row in requests_rows:
+        row_dict = dict(row)
+        row_dict["created_at_fa"] = format_tehran(row["created_at"])
+        row_dict["reviewed_at_fa"] = format_tehran(row["reviewed_at"])
+        requests_rows_view.append(row_dict)
+    reports_view = []
+    for row in reports:
+        row_dict = dict(row)
+        row_dict["created_at_fa"] = format_tehran(row["created_at"])
+        row_dict["replied_at_fa"] = format_tehran(row["replied_at"])
+        reports_view.append(row_dict)
     return render_template(
         "admin_dashboard.html",
-        requests_rows=requests_rows,
+        requests_rows=requests_rows_view,
         categories=categories,
         videos=videos,
-        reports=reports,
+        reports=reports_view,
         visitors=visitors,
+        online_by_page=online_by_page,
         stats=stats,
     )
 
@@ -726,12 +894,29 @@ def admin_reject_request(request_id):
     return jsonify({"ok": True})
 
 
+@app.post("/admin/api/requests/<int:request_id>/reset-pending")
+@admin_required
+def admin_reset_request_pending(request_id):
+    db = get_db()
+    req = db.execute("SELECT * FROM purchase_requests WHERE id=?", (request_id,)).fetchone()
+    if not req:
+        return jsonify({"ok": False, "message": "درخواست پیدا نشد."}), 404
+
+    db.execute(
+        "UPDATE purchase_requests SET status='pending', admin_note=NULL, reviewed_at=NULL WHERE id=?",
+        (request_id,),
+    )
+    db.execute("DELETE FROM user_access WHERE source_request_id=?", (request_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.post("/api/report")
 def submit_report():
     report_type = request.form.get("report_type", "").strip()
     report_text = request.form.get("report_text", "").strip()
     device_id = request.form.get("device_id", "").strip()
-    allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی"}
+    allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی", "نظرسنجی"}
 
     if report_type not in allowed_types or not report_text or not device_id:
         return jsonify({"ok": False, "message": "اطلاعات ریپورت کامل نیست."}), 400
@@ -742,9 +927,27 @@ def submit_report():
     if visitor and visitor["is_banned"]:
         return jsonify({"ok": False, "message": "این دستگاه مسدود شده است."}), 403
 
+    user = db.execute("SELECT id FROM users WHERE device_id=?", (device_id,)).fetchone()
+    user_id = user["id"] if user else None
+    reporter_name = f"کاربر {user_id}" if user_id else "کاربر مهمان"
+
+    if report_type == "نظرسنجی":
+        if not user_id:
+            return jsonify({"ok": False, "message": "فقط خریداران می‌توانند نظر ثبت کنند."}), 403
+        purchased = db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE user_id=? AND status='approved'",
+            (user_id,),
+        ).fetchone()["c"]
+        if purchased == 0:
+            return jsonify({"ok": False, "message": "برای نظرسنجی باید خرید تاییدشده داشته باشید."}), 403
+        db.execute(
+            "INSERT INTO testimonials(user_id,display_name,content,is_seed,created_at) VALUES(?,?,?,?,?)",
+            (user_id, reporter_name, report_text, 0, now_iso()),
+        )
+
     db.execute(
-        "INSERT INTO reports(device_id, reporter_name, report_type, report_text, created_at) VALUES(?,?,?,?,?)",
-        (device_id, None, report_type, report_text, now_iso()),
+        "INSERT INTO reports(device_id, user_id, reporter_name, report_type, report_text, created_at) VALUES(?,?,?,?,?,?)",
+        (device_id, user_id, reporter_name, report_type, report_text, now_iso()),
     )
     db.execute(
         "UPDATE visitors SET report_count=report_count+1, last_seen_at=? WHERE device_id=?",
@@ -752,6 +955,37 @@ def submit_report():
     )
     db.commit()
     return jsonify({"ok": True, "message": "ریپورت ثبت شد و برای ادمین ارسال شد."})
+
+
+@app.get("/api/my-report-replies")
+def api_my_report_replies():
+    device_id = request.args.get("device_id", "").strip()
+    if not device_id:
+        return jsonify({"ok": True, "items": []})
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT reporter_name, report_type, report_text, admin_reply, created_at, replied_at
+        FROM reports
+        WHERE device_id=? AND admin_reply IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 20
+        """,
+        (device_id,),
+    ).fetchall()
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "reporter_name": row["reporter_name"],
+                "report_type": row["report_type"],
+                "report_text": row["report_text"],
+                "admin_reply": row["admin_reply"],
+                "created_at": format_tehran(row["created_at"]),
+                "replied_at": format_tehran(row["replied_at"]),
+            }
+        )
+    return jsonify({"ok": True, "items": items})
 
 
 @app.get("/api/category-likes")
@@ -882,6 +1116,26 @@ def admin_delete_category(category_id):
     return jsonify({"ok": True})
 
 
+@app.post("/admin/api/videos/<int:video_id>/delete")
+@admin_required
+def admin_delete_video(video_id):
+    db = get_db()
+    video = db.execute("SELECT * FROM videos WHERE id=?", (video_id,)).fetchone()
+    if not video:
+        return jsonify({"ok": False, "message": "فایل پیدا نشد."}), 404
+
+    if video["file_path"]:
+        full = os.path.join(VIDEOS_DIR, video["file_path"])
+        if os.path.exists(full):
+            try:
+                os.remove(full)
+            except OSError:
+                pass
+    db.execute("DELETE FROM videos WHERE id=?", (video_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.post("/admin/api/videos")
 @admin_required
 def admin_create_video():
@@ -964,6 +1218,53 @@ def admin_ban_by_device():
     db = get_db()
     db.execute("UPDATE visitors SET is_banned=1 WHERE device_id=?", (device_id,))
     db.execute("UPDATE users SET is_banned=1 WHERE device_id=?", (device_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.get("/admin/api/live-stats")
+@admin_required
+def admin_live_stats():
+    db = get_db()
+    cleanup_live_sessions(db)
+    online_by_page_rows = db.execute(
+        """
+        SELECT page_key, COUNT(DISTINCT device_id) AS c
+        FROM presence_sessions
+        GROUP BY page_key
+        ORDER BY c DESC, page_key ASC
+        """
+    ).fetchall()
+    online_by_page = {row["page_key"]: row["c"] for row in online_by_page_rows}
+    stats = {
+        "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
+        "total_purchases": db.execute("SELECT COUNT(*) AS c FROM purchase_requests").fetchone()["c"],
+        "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
+        "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
+        "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "online_total": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions").fetchone()["c"],
+        "downloading_now": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions").fetchone()["c"],
+        "latest_purchase_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM purchase_requests").fetchone()["m"],
+        "latest_report_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM reports").fetchone()["m"],
+    }
+    return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page})
+
+
+@app.post("/admin/api/reports/<int:report_id>/reply")
+@admin_required
+def admin_reply_report(report_id):
+    reply_text = request.form.get("reply_text", "").strip()
+    if not reply_text:
+        return jsonify({"ok": False, "message": "متن پاسخ اجباری است."}), 400
+
+    db = get_db()
+    report = db.execute("SELECT id FROM reports WHERE id=?", (report_id,)).fetchone()
+    if not report:
+        return jsonify({"ok": False, "message": "ریپورت پیدا نشد."}), 404
+    db.execute(
+        "UPDATE reports SET admin_reply=?, replied_at=? WHERE id=?",
+        (reply_text, now_iso(), report_id),
+    )
     db.commit()
     return jsonify({"ok": True})
 

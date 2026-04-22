@@ -32,6 +32,19 @@
 <section class="footer-action">
   <a class="btn btn-ghost" href="/my-videos">ورود به فایل‌های من</a>
 </section>
+
+<section class="table-wrap">
+  <h2>نظرسنجی خریداران</h2>
+  <p class="muted">فقط کاربرانی که خرید تاییدشده دارند می‌توانند نظر ثبت کنند.</p>
+  <div class="testimonial-strip">
+    {% for item in testimonials %}
+    <article class="testimonial-card">
+      <h4>{{ item.display_name }}</h4>
+      <p>{{ item.content }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}
 
 {% block scripts %}

@@ -4,6 +4,57 @@
   const progressWrap = document.getElementById("upload-progress-wrap");
   const progressBar = document.getElementById("upload-progress-bar");
   const progressText = document.getElementById("upload-progress-text");
+  const statNodes = document.querySelectorAll("[data-stat-key]");
+  const notifToggleBtn = document.getElementById("notif-toggle-btn");
+  const onlineByPageBody = document.getElementById("online-by-page-body");
+  let lastPurchaseId = 0;
+  let lastReportId = 0;
+  const NOTIF_KEY = "mx_admin_notif_enabled";
+  let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
+
+  function setStat(key, value) {
+    const el = document.querySelector(`[data-stat-key='${key}']`);
+    if (!el) return;
+    el.textContent = String(value);
+  }
+
+  function notifyAdmin(title, body) {
+    if (!notificationsEnabled) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+      return;
+    }
+    if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          new Notification(title, { body });
+        }
+      });
+    }
+  }
+
+  function renderNotifToggle() {
+    if (!notifToggleBtn) return;
+    notifToggleBtn.textContent = notificationsEnabled ? "نوتیف: روشن" : "نوتیف: خاموش";
+    notifToggleBtn.classList.toggle("btn-danger", notificationsEnabled);
+  }
+
+  if (notifToggleBtn) {
+    renderNotifToggle();
+    notifToggleBtn.addEventListener("click", async () => {
+      if (!notificationsEnabled && "Notification" in window && Notification.permission !== "granted") {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") {
+          alert("اجازه نوتیف داده نشد.");
+          return;
+        }
+      }
+      notificationsEnabled = !notificationsEnabled;
+      localStorage.setItem(NOTIF_KEY, notificationsEnabled ? "1" : "0");
+      renderNotifToggle();
+    });
+  }
 
   if (categoryForm) {
     categoryForm.addEventListener("submit", async (e) => {
@@ -31,6 +82,21 @@
         return;
       }
       alert("دسته حذف شد");
+      window.location.reload();
+    });
+  });
+
+  document.querySelectorAll(".delete-video-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("این فایل حذف شود؟")) return;
+      const id = btn.dataset.videoId;
+      const res = await fetch(`/admin/api/videos/${id}/delete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در حذف فایل");
+        return;
+      }
+      alert("فایل حذف شد");
       window.location.reload();
     });
   });
@@ -120,6 +186,20 @@
     });
   });
 
+  document.querySelectorAll(".reset-pending-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const rid = btn.dataset.requestId;
+      const res = await fetch(`/admin/api/requests/${rid}/reset-pending`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در بازگشت به pending");
+        return;
+      }
+      alert("وضعیت به pending برگشت.");
+      window.location.reload();
+    });
+  });
+
   document.querySelectorAll(".ban-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.visitorId;
@@ -162,4 +242,62 @@
       window.location.reload();
     });
   });
+
+  document.querySelectorAll(".reply-form").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const rid = form.dataset.reportId;
+      const fd = new FormData(form);
+      const res = await fetch(`/admin/api/reports/${rid}/reply`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در ثبت پاسخ");
+        return;
+      }
+      alert("پاسخ ثبت شد");
+      window.location.reload();
+    });
+  });
+
+  if (statNodes.length > 0) {
+    let primed = false;
+    const refreshLiveStats = async () => {
+      try {
+        const res = await fetch("/admin/api/live-stats");
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const stats = data.stats || {};
+        Object.keys(stats).forEach((key) => {
+          if (key === "latest_purchase_id" || key === "latest_report_id") return;
+          setStat(key, stats[key]);
+        });
+        const latestPurchase = Number(stats.latest_purchase_id || 0);
+        const latestReport = Number(stats.latest_report_id || 0);
+        if (!primed) {
+          lastPurchaseId = latestPurchase;
+          lastReportId = latestReport;
+          primed = true;
+          return;
+        }
+        if (latestPurchase > lastPurchaseId) {
+          notifyAdmin("درخواست خرید جدید", `${latestPurchase - lastPurchaseId} خرید جدید ثبت شد.`);
+          lastPurchaseId = latestPurchase;
+        }
+        if (latestReport > lastReportId) {
+          notifyAdmin("ریپورت جدید", `${latestReport - lastReportId} ریپورت جدید ثبت شد.`);
+          lastReportId = latestReport;
+        }
+        if (onlineByPageBody && data.online_by_page) {
+          const rows = Object.entries(data.online_by_page)
+            .map(([page, count]) => `<tr><td>${page}</td><td>${count}</td></tr>`)
+            .join("");
+          onlineByPageBody.innerHTML = rows || "<tr><td colspan='2'>-</td></tr>";
+        }
+      } catch (_err) {
+        // silent
+      }
+    };
+    refreshLiveStats();
+    setInterval(refreshLiveStats, 5000);
+  }
 })();
