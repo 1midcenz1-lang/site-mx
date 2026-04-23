@@ -91,10 +91,17 @@ def format_tehran(iso_value: str | None) -> str:
 
 def tehran_day_range_utc_iso(offset_days: int = 0) -> tuple[str, str]:
     now_t = datetime.now(TEHRAN_TZ) + timedelta(days=offset_days)
+
     day_start_t = now_t.replace(hour=0, minute=0, second=0, microsecond=0)
     next_day_t = day_start_t + timedelta(days=1)
-    day_start_utc = day_start_t.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-    next_day_utc = next_day_t.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+    day_start_utc = day_start_t.astimezone(ZoneInfo("UTC")) + timedelta(hours=4)
+    next_day_utc = next_day_t.astimezone(ZoneInfo("UTC")) + timedelta(hours=4)
+
+    # مثل قبل naive کن
+    day_start_utc = day_start_utc.replace(tzinfo=None)
+    next_day_utc = next_day_utc.replace(tzinfo=None)
+
     return day_start_utc.isoformat(), next_day_utc.isoformat()
 
 
@@ -290,33 +297,7 @@ def init_db():
     if "user_seen_at" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN user_seen_at TEXT")
 
-    seed_texts = [
-        f"نظر {i}: کیفیت فایل‌ها خوب بود و خرید راحت انجام شد."
-        if i % 5 != 0
-        else f"نظر {i}: پشتیبانی سریع جواب داد و تجربه کاربری عالی بود ✨"
-        for i in range(1, 101)
-    ]
-    seed_count = cursor.execute("SELECT COUNT(*) AS c FROM testimonials WHERE is_seed=1").fetchone()["c"]
-    if seed_count == 0:
-        for idx, seed_text in enumerate(seed_texts, start=1):
-            cursor.execute(
-                "INSERT INTO testimonials(user_id,display_name,content,is_seed,created_at) VALUES(?,?,?,?,?)",
-                (
-                    None,
-                    f"کاربر {2000 + idx}",
-                    f"{seed_text} (نظر {idx})",
-                    1,
-                    now_iso(),
-                ),
-            )
-    else:
-        seed_rows = cursor.execute("SELECT id FROM testimonials WHERE is_seed=1 ORDER BY id LIMIT 100").fetchall()
-        for idx, row in enumerate(seed_rows, start=1):
-            seed_text = seed_texts[idx - 1]
-            cursor.execute(
-                "UPDATE testimonials SET display_name=?, content=? WHERE id=?",
-                (f"کاربر {2000 + idx}", f"{seed_text} (نظر {idx})", row["id"]),
-            )
+
     db.commit()
     db.close()
 
@@ -871,6 +852,7 @@ def admin_dashboard():
         "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
         "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
         "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "pending_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='pending'").fetchone()["c"],
         "online_total": online_total,
         "downloading_now": downloading_now,
         "today_purchases": db.execute(
@@ -878,11 +860,11 @@ def admin_dashboard():
             (today_start, tomorrow_start),
         ).fetchone()["c"],
         "today_approved": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
             (today_start, tomorrow_start),
         ).fetchone()["c"],
         "today_rejected": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
             (today_start, tomorrow_start),
         ).fetchone()["c"],
         "today_visitors": db.execute(
@@ -894,11 +876,11 @@ def admin_dashboard():
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
         "yesterday_approved": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
         "yesterday_rejected": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
         "yesterday_visitors": db.execute(
