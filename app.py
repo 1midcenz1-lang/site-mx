@@ -89,8 +89,8 @@ def format_tehran(iso_value: str | None) -> str:
     return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def tehran_day_range_utc_iso() -> tuple[str, str]:
-    now_t = datetime.now(TEHRAN_TZ)
+def tehran_day_range_utc_iso(offset_days: int = 0) -> tuple[str, str]:
+    now_t = datetime.now(TEHRAN_TZ) + timedelta(days=offset_days)
     day_start_t = now_t.replace(hour=0, minute=0, second=0, microsecond=0)
     next_day_t = day_start_t + timedelta(days=1)
     day_start_utc = day_start_t.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
@@ -786,6 +786,7 @@ def admin_dashboard():
     db = get_db()
     cleanup_live_sessions(db)
     today_start, tomorrow_start = tehran_day_range_utc_iso()
+    yesterday_start, today_start_for_yesterday = tehran_day_range_utc_iso(offset_days=-1)
     requests_rows = db.execute(
         """
         SELECT pr.*, u.id AS user_id, u.device_id, c.title as requested_category
@@ -879,6 +880,22 @@ def admin_dashboard():
         "today_visitors": db.execute(
             "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
             (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "yesterday_purchases": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_approved": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND reviewed_at>=? AND reviewed_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_rejected": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND reviewed_at>=? AND reviewed_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_visitors": db.execute(
+            "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
+            (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
     }
 
@@ -1305,6 +1322,7 @@ def admin_live_stats():
     db = get_db()
     cleanup_live_sessions(db)
     today_start, tomorrow_start = tehran_day_range_utc_iso()
+    yesterday_start, today_start_for_yesterday = tehran_day_range_utc_iso(offset_days=-1)
     online_by_page_rows = db.execute(
         """
         SELECT page_key, COUNT(DISTINCT device_id) AS c
@@ -1339,6 +1357,22 @@ def admin_live_stats():
         "today_visitors": db.execute(
             "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
             (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "yesterday_purchases": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_approved": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND reviewed_at>=? AND reviewed_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_rejected": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND reviewed_at>=? AND reviewed_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_visitors": db.execute(
+            "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
+            (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
     }
     return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page})
