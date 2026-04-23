@@ -13,13 +13,14 @@
       <a class="btn" href="/">دریافت ویدیو جدید</a>
       <a class="btn btn-ghost my-videos-link" href="/my-videos">مشاهده ویدیوهای من <span id="my-videos-badge" class="notify-badge hidden">0</span></a>
     </section>
+    <section id="admin-reply-banner" class="alert-banner hidden">
+      <button id="admin-reply-banner-btn" type="button">⚠️ ادمین پاسخی برای شما ثبت کرده - مشاهده</button>
+    </section>
     {% endif %}
     {% block content %}{% endblock %}
 
     {% if not request.path.startswith('/admin') %}
-    <section id="admin-reply-banner" class="alert-banner hidden">
-      <button id="admin-reply-banner-btn" type="button">⚠️ ادمین پاسخی برای شما ثبت کرده - مشاهده</button>
-    </section>
+
     <button id="report-toggle" class="report-fab" type="button" aria-label="ریپورت"><span>🚩</span><span>ریپورت</span></button>
     <button id="survey-toggle" class="survey-fab" type="button" aria-label="نظر"><span>💬</span><span>ثبت نظر</span></button>
     <button id="admin-messages-toggle" class="messages-fab" type="button" aria-label="پیام ادمین"><span>🔔</span></button>

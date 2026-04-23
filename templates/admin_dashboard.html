@@ -9,25 +9,35 @@
     <a class="btn btn-ghost" href="/admin_logout">خروج</a>
   </div>
 </section>
-
+<h1>امار بازدید</h1>
 <section class="grid-3">
-  <article class="card"><h3>کل بازدیدکننده‌ها</h3><p data-stat-key="total_visitors">{{ stats.total_visitors }}</p></article>
-  <article class="card"><h3>کل خریدها</h3><p data-stat-key="total_purchases">{{ stats.total_purchases }}</p></article>
-  <article class="card"><h3>کل ریپورت‌ها</h3><p data-stat-key="total_reports">{{ stats.total_reports }}</p></article>
   <article class="card"><h3>آنلاین لحظه‌ای</h3><p data-stat-key="online_total">{{ stats.online_total }}</p></article>
   <article class="card"><h3>درحال دانلود</h3><p data-stat-key="downloading_now">{{ stats.downloading_now }}</p></article>
+  <article class="card"><h3>کل ریپورت‌ها</h3><p data-stat-key="total_reports">{{ stats.total_reports }}</p></article>
+
+</section>
+<h1>امار کل</h1>
+<section class="grid-3">
+  <article class="card"><h3>کل خریدها</h3><p data-stat-key="total_purchases">{{ stats.total_purchases }}</p></article>
+  <article class="card"><h3>کل بازدیدکننده‌ها</h3><p data-stat-key="total_visitors">{{ stats.total_visitors }}</p></article>
   <article class="card"><h3>فیش تایید شده</h3><p data-stat-key="approved_receipts">{{ stats.approved_receipts }}</p></article>
   <article class="card"><h3>فیش رد شده</h3><p data-stat-key="rejected_receipts">{{ stats.rejected_receipts }}</p></article>
+</section>
+<h1>امار امروز</h1>
+
+<section class="grid-3">
   <article class="card"><h3>خریدهای امروز</h3><p data-stat-key="today_purchases">{{ stats.today_purchases }}</p></article>
   <article class="card"><h3>تاییدهای امروز</h3><p data-stat-key="today_approved">{{ stats.today_approved }}</p></article>
-  <article class="card"><h3>ردهای امروز</h3><p data-stat-key="today_rejected">{{ stats.today_rejected }}</p></article>
+  <article class="card"><h3>فیش رد شده امروز</h3><p data-stat-key="today_rejected">{{ stats.today_rejected }}</p></article>
   <article class="card"><h3>بازدید امروز</h3><p data-stat-key="today_visitors">{{ stats.today_visitors }}</p></article>
+</section>
+<h1>امار دیروز</h1>
+<section class="grid-3">
   <article class="card"><h3>خریدهای دیروز</h3><p data-stat-key="yesterday_purchases">{{ stats.yesterday_purchases }}</p></article>
   <article class="card"><h3>تاییدهای دیروز</h3><p data-stat-key="yesterday_approved">{{ stats.yesterday_approved }}</p></article>
-  <article class="card"><h3>ردهای دیروز</h3><p data-stat-key="yesterday_rejected">{{ stats.yesterday_rejected }}</p></article>
+  <article class="card"><h3>فیش رد شده دیروز</h3><p data-stat-key="yesterday_rejected">{{ stats.yesterday_rejected }}</p></article>
   <article class="card"><h3>بازدید دیروز</h3><p data-stat-key="yesterday_visitors">{{ stats.yesterday_visitors }}</p></article>
 </section>
-
 <section class="table-wrap scroll-box">
   <h2>آنلاین در هر صفحه</h2>
   <table>
@@ -39,7 +49,7 @@
     </tbody>
   </table>
 </section>
-
+<br>
 <section class="grid-2">
   <article class="form-card">
     <h2>افزودن دسته‌بندی</h2>
@@ -132,7 +142,7 @@
     </tbody>
   </table>
 </section>
-
+<br>
 <section class="table-wrap scroll-box">
   <h2>لیست دسته‌بندی‌ها</h2>
   <table>
@@ -151,7 +161,7 @@
     </tbody>
   </table>
 </section>
-
+<br>
 <section class="table-wrap scroll-box">
   <h2>لیست فایل‌ها</h2>
   <table>
@@ -171,7 +181,7 @@
     </tbody>
   </table>
 </section>
-
+<br>
 <section class="table-wrap scroll-box">
   <h2>نظرات کاربران</h2>
   <table>
@@ -190,7 +200,7 @@
     </tbody>
   </table>
 </section>
-
+<br>
 <section class="table-wrap scroll-box">
   <h2>ریپورت‌های کاربران</h2>
   <table>

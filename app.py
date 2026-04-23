@@ -85,7 +85,7 @@ def format_tehran(iso_value: str | None) -> str:
         return iso_value
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=18, minutes=30)
+    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
     return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
 
