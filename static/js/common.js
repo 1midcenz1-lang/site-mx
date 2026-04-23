@@ -126,18 +126,14 @@
         reportPanel.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
-    if (messagesToggle && reportReplies) {
+    if (messagesToggle) {
       messagesToggle.addEventListener("click", () => {
-        if (reportPanel) reportPanel.classList.remove("hidden");
-        reportReplies.classList.toggle("hidden");
-        reportReplies.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.location.href = "/messages";
       });
     }
-    if (adminReplyBannerBtn && reportReplies) {
+    if (adminReplyBannerBtn) {
       adminReplyBannerBtn.addEventListener("click", () => {
-        if (reportPanel) reportPanel.classList.remove("hidden");
-        reportReplies.classList.remove("hidden");
-        reportReplies.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.location.href = "/messages";
       });
     }
 
@@ -172,17 +168,21 @@
         const res = await fetch(`/api/my-report-replies?device_id=${encodeURIComponent(deviceId)}`);
         const data = await res.json();
         if (!(res.ok && data.ok && data.items && data.items.length)) {
+          if (messagesToggle) messagesToggle.classList.remove("has-alert");
+          if (adminReplyBanner) adminReplyBanner.classList.add("hidden");
           reportReplies.textContent = "فعلا پاسخی از ادمین ثبت نشده است.";
           return;
         }
         reportReplies.textContent = data.items
           .map((item) => `${item.report_type} | ${item.created_at}\n${item.report_text}\nپاسخ ادمین (${item.replied_at}): ${item.admin_reply}`)
           .join("\n\n------------------\n\n");
-        if (messagesToggle) messagesToggle.classList.add("has-alert");
-        if (adminReplyBanner) adminReplyBanner.classList.remove("hidden");
+        const unseenCount = Number(data.unseen_count || 0);
+        if (messagesToggle) messagesToggle.classList.toggle("has-alert", unseenCount > 0);
+        if (adminReplyBanner) adminReplyBanner.classList.toggle("hidden", unseenCount <= 0);
         const latestReplyId = Number(data.items[0].id || 0);
         const oldReplyId = Number(localStorage.getItem("mx_last_reply_id") || "0");
         if (
+          unseenCount > 0 &&
           latestReplyId > oldReplyId &&
           "Notification" in window &&
           Notification.permission === "granted" &&

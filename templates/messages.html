@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}پیام‌های ادمین{% endblock %}
+{% block content %}
+<section class="hero hero-glass">
+  <h1>پیام‌های ادمین</h1>
+  <p>تمام پاسخ‌های ادمین به ریپورت‌های شما در این صفحه نمایش داده می‌شود.</p>
+  <div id="messages-list" class="accordion-list"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/messages.js"></script>
+{% endblock %}

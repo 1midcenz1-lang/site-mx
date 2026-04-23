@@ -205,6 +205,7 @@ def init_db():
             report_text TEXT NOT NULL,
             admin_reply TEXT,
             replied_at TEXT,
+            user_seen_at TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
@@ -286,6 +287,8 @@ def init_db():
         cursor.execute("ALTER TABLE reports ADD COLUMN admin_reply TEXT")
     if "replied_at" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN replied_at TEXT")
+    if "user_seen_at" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN user_seen_at TEXT")
 
     seed_texts = [
         f"نظر {i}: کیفیت فایل‌ها خوب بود و خرید راحت انجام شد."
@@ -591,6 +594,11 @@ def purchase_status():
 @app.route("/my-videos")
 def my_videos_page():
     return render_template("my_videos.html")
+
+
+@app.route("/messages")
+def messages_page():
+    return render_template("messages.html")
 
 
 @app.get("/api/my-videos")
@@ -1046,7 +1054,7 @@ def api_my_report_replies():
     db = get_db()
     rows = db.execute(
         """
-        SELECT id, reporter_name, report_type, report_text, admin_reply, created_at, replied_at
+        SELECT id, reporter_name, report_type, report_text, admin_reply, created_at, replied_at, user_seen_at
         FROM reports
         WHERE device_id=? AND admin_reply IS NOT NULL
         ORDER BY id DESC
@@ -1065,9 +1073,30 @@ def api_my_report_replies():
                 "admin_reply": row["admin_reply"],
                 "created_at": format_tehran(row["created_at"]),
                 "replied_at": format_tehran(row["replied_at"]),
+                "is_seen": bool(row["user_seen_at"]),
             }
         )
-    return jsonify({"ok": True, "items": items})
+    unseen_count = sum(1 for item in items if not item["is_seen"])
+    return jsonify({"ok": True, "items": items, "unseen_count": unseen_count})
+
+
+@app.post("/api/my-report-replies/mark-seen")
+def api_mark_replies_seen():
+    payload = request.get_json(silent=True) or {}
+    device_id = (payload.get("device_id") or "").strip()
+    if not device_id:
+        return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
+    db = get_db()
+    db.execute(
+        """
+        UPDATE reports
+        SET user_seen_at=?
+        WHERE device_id=? AND admin_reply IS NOT NULL AND user_seen_at IS NULL
+        """,
+        (now_iso(), device_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @app.get("/api/category-likes")
@@ -1390,7 +1419,7 @@ def admin_reply_report(report_id):
     if not report:
         return jsonify({"ok": False, "message": "ریپورت پیدا نشد."}), 404
     db.execute(
-        "UPDATE reports SET admin_reply=?, replied_at=? WHERE id=?",
+        "UPDATE reports SET admin_reply=?, replied_at=?, user_seen_at=NULL WHERE id=?",
         (reply_text, now_iso(), report_id),
     )
     db.commit()
