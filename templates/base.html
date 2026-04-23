@@ -17,7 +17,12 @@
     {% block content %}{% endblock %}
 
     {% if not request.path.startswith('/admin') %}
+    <section id="admin-reply-banner" class="alert-banner hidden">
+      <button id="admin-reply-banner-btn" type="button">⚠️ ادمین پاسخی برای شما ثبت کرده - مشاهده</button>
+    </section>
     <button id="report-toggle" class="report-fab" type="button" aria-label="ریپورت"><span>🚩</span><span>ریپورت</span></button>
+    <button id="survey-toggle" class="survey-fab" type="button" aria-label="نظر"><span>💬</span><span>ثبت نظر</span></button>
+    <button id="admin-messages-toggle" class="messages-fab" type="button" aria-label="پیام ادمین"><span>🔔</span></button>
     <section id="report-panel" class="form-card report-box hidden">
       <h3>ریپورت محتوا</h3>
       <form id="report-form">
@@ -27,12 +32,14 @@
           <option value="مستحجن">مستحجن</option>
           <option value="کلاهبرداری">کلاهبرداری</option>
           <option value="پشتیبانی">پشتیبانی</option>
+          <option value="نظرسنجی">نظرسنجی خریداران</option>
         </select>
         <label>توضیحات</label>
         <textarea name="report_text" rows="3" required></textarea>
         <button class="btn btn-danger" type="submit">ارسال ریپورت</button>
       </form>
       <div id="report-result" class="result-box"></div>
+      <div id="report-replies" class="result-box hidden"></div>
     </section>
 
     {% endif %}
