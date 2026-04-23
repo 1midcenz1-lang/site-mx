@@ -86,8 +86,14 @@
     const adminReplyBannerBtn = document.getElementById("admin-reply-banner-btn");
     const reportTypeSelect = reportForm ? reportForm.querySelector("select[name='report_type']") : null;
     const notifEnabled = localStorage.getItem("mx_user_notif_enabled") !== "0";
+    let notifAsked = false;
 
-    if ("Notification" in window && notifEnabled && Notification.permission === "default") {
+    async function ensureNotificationPermission() {
+      if (!("Notification" in window)) return;
+      if (!notifEnabled) return;
+      if (Notification.permission !== "default") return;
+      if (notifAsked) return;
+      notifAsked = true;
       try {
         const perm = await Notification.requestPermission();
         if (perm === "denied") localStorage.setItem("mx_user_notif_enabled", "0");
@@ -95,6 +101,11 @@
         // silent
       }
     }
+
+    ensureNotificationPermission();
+    document.addEventListener("click", () => {
+      ensureNotificationPermission();
+    });
 
     if (reportDeviceInput) reportDeviceInput.value = deviceId;
 
@@ -117,12 +128,14 @@
     }
     if (messagesToggle && reportReplies) {
       messagesToggle.addEventListener("click", () => {
+        if (reportPanel) reportPanel.classList.remove("hidden");
         reportReplies.classList.toggle("hidden");
         reportReplies.scrollIntoView({ behavior: "smooth", block: "center" });
       });
     }
     if (adminReplyBannerBtn && reportReplies) {
       adminReplyBannerBtn.addEventListener("click", () => {
+        if (reportPanel) reportPanel.classList.remove("hidden");
         reportReplies.classList.remove("hidden");
         reportReplies.scrollIntoView({ behavior: "smooth", block: "center" });
       });
@@ -158,7 +171,10 @@
       try {
         const res = await fetch(`/api/my-report-replies?device_id=${encodeURIComponent(deviceId)}`);
         const data = await res.json();
-        if (!(res.ok && data.ok && data.items && data.items.length)) return;
+        if (!(res.ok && data.ok && data.items && data.items.length)) {
+          reportReplies.textContent = "فعلا پاسخی از ادمین ثبت نشده است.";
+          return;
+        }
         reportReplies.textContent = data.items
           .map((item) => `${item.report_type} | ${item.created_at}\n${item.report_text}\nپاسخ ادمین (${item.replied_at}): ${item.admin_reply}`)
           .join("\n\n------------------\n\n");
