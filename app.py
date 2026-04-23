@@ -85,7 +85,7 @@ def format_tehran(iso_value: str | None) -> str:
         return iso_value
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=18, minutes=30)
+    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
     return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -1242,6 +1242,8 @@ def admin_live_stats():
         "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
         "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
         "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "pending_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='pending'").fetchone()["c"],
+
         "online_total": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions").fetchone()["c"],
         "downloading_now": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions").fetchone()["c"],
         "latest_purchase_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM purchase_requests").fetchone()["m"],
