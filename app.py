@@ -88,21 +88,25 @@ def format_tehran(iso_value: str | None) -> str:
     adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
     return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
+def to_tehran_adjusted(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
 
 def tehran_day_range_utc_iso(offset_days: int = 0) -> tuple[str, str]:
-    now_t = datetime.now(TEHRAN_TZ) + timedelta(days=offset_days)
+    now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
 
-    day_start_t = now_t.replace(hour=0, minute=0, second=0, microsecond=0)
-    next_day_t = day_start_t + timedelta(days=1)
+    # 👇 دقیقاً همون منطق format_tehran
+    now_adj = to_tehran_adjusted(now_utc) + timedelta(days=offset_days)
 
-    day_start_utc = day_start_t.astimezone(ZoneInfo("UTC")) + timedelta(hours=4)
-    next_day_utc = next_day_t.astimezone(ZoneInfo("UTC")) + timedelta(hours=4)
+    day_start_adj = now_adj.replace(hour=0, minute=0, second=0, microsecond=0)
+    next_day_adj = day_start_adj + timedelta(days=1)
 
-    # مثل قبل naive کن
-    day_start_utc = day_start_utc.replace(tzinfo=None)
-    next_day_utc = next_day_utc.replace(tzinfo=None)
+    # برگردوندن به UTC واقعی
+    start_utc = (day_start_adj + timedelta(hours=4)).astimezone(ZoneInfo("UTC"))
+    end_utc = (next_day_adj + timedelta(hours=4)).astimezone(ZoneInfo("UTC"))
 
-    return day_start_utc.isoformat(), next_day_utc.isoformat()
+    return start_utc.replace(tzinfo=None).isoformat(), end_utc.replace(tzinfo=None).isoformat()
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -842,9 +846,11 @@ def admin_dashboard():
         FROM presence_sessions
         GROUP BY page_key
         ORDER BY c DESC, page_key ASC
-        """
+        """ 
     ).fetchall()
     online_by_page = {row["page_key"]: row["c"] for row in online_by_page_rows}
+    print(today_start)
+    print(tomorrow_start)
 
     stats = {
         "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
@@ -1358,11 +1364,11 @@ def admin_live_stats():
             (today_start, tomorrow_start),
         ).fetchone()["c"],
         "today_approved": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
             (today_start, tomorrow_start),
         ).fetchone()["c"],
         "today_rejected": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
             (today_start, tomorrow_start),
         ).fetchone()["c"],
         "today_visitors": db.execute(
@@ -1374,11 +1380,11 @@ def admin_live_stats():
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
         "yesterday_approved": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
         "yesterday_rejected": db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND reviewed_at>=? AND reviewed_at<?",
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
         "yesterday_visitors": db.execute(
