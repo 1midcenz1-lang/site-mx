@@ -159,7 +159,7 @@
         return;
       }
       alert("تایید شد");
-      window.location.reload();
+      //window.location.reload();
     });
   });
 
@@ -182,7 +182,7 @@
         return;
       }
       alert("رد شد");
-      window.location.reload();
+      //window.location.reload();
     });
   });
 
