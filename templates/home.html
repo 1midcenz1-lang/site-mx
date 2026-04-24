@@ -28,7 +28,26 @@
   <div class="placeholder">هنوز هیچ دسته‌ای توسط ادمین ساخته نشده است.</div>
   {% endif %}
 </section>
-
+<br>
+<section class="table-wrap">
+  <h2>نظرسنجی مشترکین</h2>
+  <p class="muted">فقط کاربرانی که اشتراک تاییدشده دارند می‌توانند نظر ثبت کنند.</p>
+  <div class="testimonial-strip">
+    {% for item in testimonials %}
+    <article class="testimonial-card">
+      <h4>{{ item.display_name }}</h4>
+      <p>{{ item.content }}</p>
+      {% if item.category_titles %}
+      <div class="mini-chip-wrap">
+        {% for cat in item.category_titles.split(' | ') %}
+        <span class="mini-chip">{{ cat }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
 <section class="footer-action">
   <a class="btn btn-ghost" href="/my-videos">ورود به فایل‌های من</a>
 </section>

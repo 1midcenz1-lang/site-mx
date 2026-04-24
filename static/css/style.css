@@ -33,6 +33,7 @@ body {
 }
 .hero h1 { margin: 0 0 8px; font-size: 30px; }
 .hero p { margin: 0; color: var(--muted); }
+.muted { color: var(--muted); }
 
 .cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .card, .form-card, .table-wrap {
@@ -204,6 +205,7 @@ input, textarea, select {
 }
 
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 14px; }
 
@@ -212,8 +214,6 @@ th, td { border: 1px solid var(--line); padding: 8px; text-align: right; vertica
 th { background: rgba(30, 41, 59, 0.75); }
 .device-id { font-family: monospace; font-size: 12px; }
 .table-wrap { overflow-x: auto; }
-<<<<<<< Updated upstream
-=======
 .buyer-scroll-box { max-height: 760px; overflow-y: auto; }
 .scroll-box { max-height: 1520px; overflow-y: auto; }
 
@@ -241,7 +241,6 @@ th { background: rgba(30, 41, 59, 0.75); }
   color: var(--muted);
   line-height: 1.7;
 }
->>>>>>> Stashed changes
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .chips label { margin: 0; background: rgba(30, 41, 59, 0.7); border-radius: 8px; padding: 4px 8px; font-size: 12px; }

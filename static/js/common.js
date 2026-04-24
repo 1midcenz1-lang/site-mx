@@ -33,6 +33,19 @@
     }
   }
 
+  async function sendPresence(deviceId) {
+    const pageKey = window.location.pathname || "/";
+    try {
+      await fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId, page_key: pageKey }),
+      });
+    } catch (_err) {
+      // silent
+    }
+  }
+
   async function setup() {
     const onboard = await initDevice();
     const deviceId = onboard.deviceId;
@@ -42,6 +55,8 @@
     window.MX.ensureDeviceId = () => deviceId;
 
     registerVisit(deviceId);
+    sendPresence(deviceId);
+    setInterval(() => sendPresence(deviceId), 30000);
     const videosBadge = document.getElementById("my-videos-badge");
     if (videosBadge) {
       try {
@@ -64,6 +79,33 @@
     const reportDeviceInput = document.getElementById("report_device_id");
     const reportPanel = document.getElementById("report-panel");
     const reportToggle = document.getElementById("report-toggle");
+    const surveyToggle = document.getElementById("survey-toggle");
+    const reportReplies = document.getElementById("report-replies");
+    const messagesToggle = document.getElementById("admin-messages-toggle");
+    const adminReplyBanner = document.getElementById("admin-reply-banner");
+    const adminReplyBannerBtn = document.getElementById("admin-reply-banner-btn");
+    const reportTypeSelect = reportForm ? reportForm.querySelector("select[name='report_type']") : null;
+    const notifEnabled = localStorage.getItem("mx_user_notif_enabled") !== "0";
+    let notifAsked = false;
+
+    async function ensureNotificationPermission() {
+      if (!("Notification" in window)) return;
+      if (!notifEnabled) return;
+      if (Notification.permission !== "default") return;
+      if (notifAsked) return;
+      notifAsked = true;
+      try {
+        const perm = await Notification.requestPermission();
+        if (perm === "denied") localStorage.setItem("mx_user_notif_enabled", "0");
+      } catch (_err) {
+        // silent
+      }
+    }
+
+    ensureNotificationPermission();
+    document.addEventListener("click", () => {
+      ensureNotificationPermission();
+    });
 
     if (reportDeviceInput) reportDeviceInput.value = deviceId;
 
@@ -75,6 +117,23 @@
           const textArea = reportForm ? reportForm.querySelector("textarea[name='report_text']") : null;
           if (textArea) textArea.focus({ preventScroll: true });
         }
+      });
+    }
+    if (surveyToggle && reportPanel) {
+      surveyToggle.addEventListener("click", () => {
+        reportPanel.classList.remove("hidden");
+        if (reportTypeSelect) reportTypeSelect.value = "نظرسنجی";
+        reportPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+    if (messagesToggle) {
+      messagesToggle.addEventListener("click", () => {
+        window.location.href = "/messages";
+      });
+    }
+    if (adminReplyBannerBtn) {
+      adminReplyBannerBtn.addEventListener("click", () => {
+        window.location.href = "/messages";
       });
     }
 
@@ -102,6 +161,68 @@
         }
       });
     }
+
+    async function refreshReplyBox() {
+      if (!reportReplies) return;
+      try {
+        const res = await fetch(`/api/my-report-replies?device_id=${encodeURIComponent(deviceId)}`);
+        const data = await res.json();
+        if (!(res.ok && data.ok && data.items && data.items.length)) {
+          if (messagesToggle) messagesToggle.classList.remove("has-alert");
+          if (adminReplyBanner) adminReplyBanner.classList.add("hidden");
+          reportReplies.textContent = "فعلا پاسخی از ادمین ثبت نشده است.";
+          return;
+        }
+        reportReplies.textContent = data.items
+          .map((item) => `${item.report_type} | ${item.created_at}\n${item.report_text}\nپاسخ ادمین (${item.replied_at}): ${item.admin_reply}`)
+          .join("\n\n------------------\n\n");
+        const unseenCount = Number(data.unseen_count || 0);
+        if (messagesToggle) messagesToggle.classList.toggle("has-alert", unseenCount > 0);
+        if (adminReplyBanner) adminReplyBanner.classList.toggle("hidden", unseenCount <= 0);
+        const latestReplyId = Number(data.items[0].id || 0);
+        const oldReplyId = Number(localStorage.getItem("mx_last_reply_id") || "0");
+        if (
+          unseenCount > 0 &&
+          latestReplyId > oldReplyId &&
+          "Notification" in window &&
+          Notification.permission === "granted" &&
+          notifEnabled
+        ) {
+          new Notification("پاسخ جدید ادمین", { body: "برای مشاهده پاسخ وارد سایت شوید." });
+        }
+        if (latestReplyId > oldReplyId) localStorage.setItem("mx_last_reply_id", String(latestReplyId));
+      } catch (_err) {
+        // silent
+      }
+    }
+
+    async function refreshPurchaseNotification() {
+      try {
+        const res = await fetch(`/api/purchase-status?device_id=${encodeURIComponent(deviceId)}`);
+        const data = await res.json();
+        if (!(res.ok && data.ok)) return;
+        const status = data.latest_status || "none";
+        const oldStatus = localStorage.getItem("mx_last_purchase_status") || "none";
+        if (
+          status !== oldStatus &&
+          oldStatus !== "none" &&
+          status === "approved" &&
+          "Notification" in window &&
+          Notification.permission === "granted" &&
+          notifEnabled
+        ) {
+          new Notification("خرید شما تایید شد ✅", { body: "برای مشاهده فایل‌ها وارد بخش ویدیوهای من شوید." });
+        }
+        localStorage.setItem("mx_last_purchase_status", status);
+      } catch (_err) {
+        // silent
+      }
+    }
+
+    refreshReplyBox();
+    refreshPurchaseNotification();
+    setInterval(refreshReplyBox, 12000);
+    setInterval(refreshPurchaseNotification, 12000);
   }
 
   setup();

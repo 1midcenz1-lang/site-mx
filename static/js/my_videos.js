@@ -20,6 +20,7 @@
     || localStorage.getItem("mx_device_id")
     || generateUUID();
   localStorage.setItem("mx_device_id", deviceId);
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 
   async function loadVideos() {
     listBox.innerHTML = "";
@@ -66,8 +67,13 @@
           const watch = `${v.watch_url}?device_id=${encodeURIComponent(deviceId)}`;
           link.href = watch;
           link.className = "btn";
-          link.target = "_blank";
+          link.target = isIOS ? "_self" : "_blank";
           link.textContent = v.title;
+          if (isIOS) {
+            link.addEventListener("click", () => {
+              approvedText.textContent = "در iPhone لینک دانلود با مرورگر پیش‌فرض (Safari/Chrome) باز می‌شود.";
+            });
+          }
           card.appendChild(link);
           card.appendChild(document.createElement("br"));
           card.appendChild(document.createElement("br"));
