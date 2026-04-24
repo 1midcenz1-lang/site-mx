@@ -13,17 +13,11 @@
       <a class="btn" href="/">دریافت ویدیو جدید</a>
       <a class="btn btn-ghost my-videos-link" href="/my-videos">مشاهده ویدیوهای من <span id="my-videos-badge" class="notify-badge hidden">0</span></a>
     </section>
-    <section id="admin-reply-banner" class="alert-banner hidden">
-      <button id="admin-reply-banner-btn" type="button">⚠️ ادمین پاسخی برای شما ثبت کرده - مشاهده</button>
-    </section>
     {% endif %}
     {% block content %}{% endblock %}
 
     {% if not request.path.startswith('/admin') %}
-
     <button id="report-toggle" class="report-fab" type="button" aria-label="ریپورت"><span>🚩</span><span>ریپورت</span></button>
-    <button id="survey-toggle" class="survey-fab" type="button" aria-label="نظر"><span>💬</span><span>ثبت نظر</span></button>
-    <button id="admin-messages-toggle" class="messages-fab" type="button" aria-label="پیام ادمین"><span>🔔</span></button>
     <section id="report-panel" class="form-card report-box hidden">
       <h3>ریپورت محتوا</h3>
       <form id="report-form">
@@ -33,6 +27,7 @@
           <option value="مستحجن">مستحجن</option>
           <option value="کلاهبرداری">کلاهبرداری</option>
           <option value="پشتیبانی">پشتیبانی</option>
+          <option value="نظرسنجی">نظرسنجی خریداران</option>
         </select>
         <label>توضیحات</label>
         <textarea name="report_text" rows="3" required></textarea>
@@ -40,16 +35,6 @@
       </form>
       <div id="report-result" class="result-box"></div>
       <div id="report-replies" class="result-box hidden"></div>
-    </section>
-    <section id="survey-panel" class="form-card report-box hidden">
-      <h3>ثبت نظر مشترکین</h3>
-      <form id="survey-form">
-        <input type="hidden" name="device_id" id="survey_device_id" />
-        <label>متن نظر</label>
-        <textarea name="testimonial_text" rows="3" required></textarea>
-        <button class="btn" type="submit">ثبت نظر</button>
-      </form>
-      <div id="survey-result" class="result-box"></div>
     </section>
 
     {% endif %}

@@ -12,8 +12,19 @@
       return v.toString(16);
     });
   }
+  function getOrCreateStableId() {
+    let id = localStorage.getItem("mx_device_id_v2");
+
+    if (!id) {
+      id = generateUUID();
+      localStorage.setItem("mx_device_id_v2", id);
+    }
+
+    return id;
+  }
   function initDevice() {
-    let deviceId = localStorage.getItem("mx_device_id");
+    let deviceId = getOrCreateStableId();
+    localStorage.setItem("mx_device_id", deviceId);
     if (!deviceId) {
       deviceId = generateUUID();
       localStorage.setItem("mx_device_id", deviceId);
@@ -47,6 +58,29 @@
   }
 
   async function setup() {
+    // 👇 migration logic
+  const oldDeviceId = localStorage.getItem("mx_device_id");
+  const newDeviceId = getOrCreateStableId();
+
+  if (oldDeviceId && oldDeviceId !== newDeviceId) {
+    try {
+      await fetch("/api/upgrade-device", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          old_device_id: oldDeviceId,
+          new_device_id: newDeviceId,
+        }),
+      });
+
+      // جایگزین کن
+      localStorage.setItem("mx_device_id", newDeviceId);
+    } catch (e) {
+      // silent
+    }
+  }
     const onboard = await initDevice();
     const deviceId = onboard.deviceId;
 
