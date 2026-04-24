@@ -2,6 +2,7 @@
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 from functools import wraps
 
@@ -315,6 +316,22 @@ def now_iso() -> str:
 
 def allowed_file(filename: str, allowed_extensions: set[str]) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_extensions
+
+
+def normalize_external_url(raw_url: str) -> str | None:
+    cleaned = (raw_url or "").strip()
+    if not cleaned:
+        return None
+
+    if cleaned.startswith("//"):
+        cleaned = f"https:{cleaned}"
+    elif "://" not in cleaned:
+        cleaned = f"https://{cleaned}"
+
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return cleaned
 
 
 def register_visit(device_id: str, db=None):
@@ -726,6 +743,8 @@ def watch_video(token):
     db.commit()
 
     if row["source_type"] == "url":
+        if not row["external_url"]:
+            abort(404)
         return redirect(row["external_url"])
 
     if not row["file_path"]:
@@ -1141,7 +1160,7 @@ def admin_delete_video(video_id):
 def admin_create_video():
     category_id = request.form.get("category_id", "").strip()
     title = request.form.get("title", "").strip()
-    external_url = request.form.get("external_url", "").strip()
+    external_url = normalize_external_url(request.form.get("external_url", ""))
     video_file = request.files.get("video_file")
 
     if not category_id or not title:
@@ -1162,7 +1181,7 @@ def admin_create_video():
     elif external_url:
         source_type = "url"
     else:
-        return jsonify({"ok": False, "message": "یا فایل zip بده یا لینک."}), 400
+        return jsonify({"ok": False, "message": "یا فایل zip بده یا لینک معتبر وارد کن."}), 400
 
     db = get_db()
     cat = db.execute("SELECT id FROM categories WHERE id=?", (category_id,)).fetchone()
