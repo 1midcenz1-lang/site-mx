@@ -110,6 +110,57 @@ body {
   gap: 7px;
   padding: 0 9px;
 }
+.survey-fab, .messages-fab {
+  position: fixed;
+  left: 18px;
+  border: none;
+  cursor: pointer;
+  z-index: 1000;
+  color: #fff;
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.35);
+}
+.survey-fab {
+  bottom: 58px;
+  min-width: 44px;
+  height: 32px;
+  border-radius: 16px;
+  font-size: 13px;
+  background: linear-gradient(120deg, #10b981, #06b6d4);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+}
+.messages-fab {
+  bottom: 98px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  font-size: 16px;
+  background: linear-gradient(120deg, #f59e0b, #ef4444);
+}
+.messages-fab.has-alert { animation: pulse 1.3s infinite; }
+.alert-banner {
+  margin-bottom: 12px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.alert-banner button {
+  background: transparent;
+  color: var(--ink);
+  border: none;
+  cursor: pointer;
+}
+.tiny-text { font-size: 11px; color: var(--muted); }
+.mini-chip-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.mini-chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 11px; color: var(--muted); }
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
 .modal-backdrop { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.78); display: flex; align-items: center; justify-content: center; z-index: 1200; }
 .modal-card { width: min(92vw, 430px); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
 .modal-card p { color: var(--muted); margin-top: 0; }
@@ -161,6 +212,36 @@ th, td { border: 1px solid var(--line); padding: 8px; text-align: right; vertica
 th { background: rgba(30, 41, 59, 0.75); }
 .device-id { font-family: monospace; font-size: 12px; }
 .table-wrap { overflow-x: auto; }
+<<<<<<< Updated upstream
+=======
+.buyer-scroll-box { max-height: 760px; overflow-y: auto; }
+.scroll-box { max-height: 1520px; overflow-y: auto; }
+
+.testimonial-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+}
+.testimonial-card {
+  min-width: 280px;
+  max-width: 340px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  scroll-snap-align: start;
+}
+.testimonial-card h4 {
+  margin: 0 0 8px;
+}
+.testimonial-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+>>>>>>> Stashed changes
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .chips label { margin: 0; background: rgba(30, 41, 59, 0.7); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
@@ -245,4 +326,6 @@ th { background: rgba(30, 41, 59, 0.75); }
   .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
   .quick-links .btn { flex-basis: 100%; }
   .report-fab { left: 12px; bottom: 12px; }
+  .survey-fab { left: 12px; bottom: 54px; }
+  .messages-fab { left: 12px; bottom: 94px; }
 }

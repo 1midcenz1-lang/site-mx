@@ -1,7 +1,12 @@
 ﻿import os
 import sqlite3
 import uuid
+<<<<<<< Updated upstream
 from datetime import datetime
+=======
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+>>>>>>> Stashed changes
 from functools import wraps
 
 from flask import (
@@ -66,6 +71,51 @@ app.config["ADMIN_PASS"] = os.environ.get("ADMIN_PASS", "mx9091")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 1GB
 
 
+<<<<<<< Updated upstream
+=======
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+ONLINE_SECONDS = 120
+DOWNLOAD_ACTIVE_SECONDS = 180
+
+
+def tehran_now_iso() -> str:
+    return datetime.now(TEHRAN_TZ).isoformat()
+
+
+def format_tehran(iso_value: str | None) -> str:
+    if not iso_value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(iso_value)
+    except Exception:
+        return iso_value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
+    return adjusted.strftime("%Y-%m-%d %H:%M:%S")
+
+def to_tehran_adjusted(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
+
+def tehran_day_range_utc_iso(offset_days: int = 0) -> tuple[str, str]:
+    now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+
+    # 👇 دقیقاً همون منطق format_tehran
+    now_adj = to_tehran_adjusted(now_utc) + timedelta(days=offset_days)
+
+    day_start_adj = now_adj.replace(hour=0, minute=0, second=0, microsecond=0)
+    next_day_adj = day_start_adj + timedelta(days=1)
+
+    # برگردوندن به UTC واقعی
+    start_utc = (day_start_adj + timedelta(hours=4)).astimezone(ZoneInfo("UTC"))
+    end_utc = (next_day_adj + timedelta(hours=4)).astimezone(ZoneInfo("UTC"))
+
+    return start_utc.replace(tzinfo=None).isoformat(), end_utc.replace(tzinfo=None).isoformat()
+
+
+>>>>>>> Stashed changes
 def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="mx-watch")
 
@@ -170,7 +220,15 @@ def init_db():
             reporter_name TEXT,
             report_type TEXT NOT NULL,
             report_text TEXT NOT NULL,
+<<<<<<< Updated upstream
             created_at TEXT NOT NULL
+=======
+            admin_reply TEXT,
+            replied_at TEXT,
+            user_seen_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+>>>>>>> Stashed changes
         );
 
         CREATE TABLE IF NOT EXISTS category_likes (
@@ -214,6 +272,18 @@ def init_db():
     report_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(reports)").fetchall()]
     if "reporter_name" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN reporter_name TEXT")
+<<<<<<< Updated upstream
+=======
+    if "user_id" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN user_id INTEGER")
+    if "admin_reply" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN admin_reply TEXT")
+    if "replied_at" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN replied_at TEXT")
+    if "user_seen_at" not in report_cols:
+        cursor.execute("ALTER TABLE reports ADD COLUMN user_seen_at TEXT")
+
+>>>>>>> Stashed changes
 
     db.commit()
     db.close()
@@ -277,7 +347,25 @@ def admin_required(func):
 def home():
     db = get_db()
     categories = db.execute("SELECT * FROM categories ORDER BY id").fetchall()
+<<<<<<< Updated upstream
     return render_template("home.html", categories=categories)
+=======
+    testimonials = db.execute(
+        """
+        SELECT t.display_name, t.content, t.created_at,
+               (
+                   SELECT GROUP_CONCAT(c.title, ' | ')
+                   FROM user_access ua
+                   JOIN categories c ON c.id = ua.category_id
+                   WHERE ua.user_id = t.user_id
+               ) AS category_titles
+        FROM testimonials t
+        ORDER BY t.id DESC
+        LIMIT 160
+        """
+    ).fetchall()
+    return render_template("home.html", categories=categories, testimonials=testimonials)
+>>>>>>> Stashed changes
 
 
 @app.route("/samples/<slug>")
@@ -435,6 +523,7 @@ def purchase_status():
     return jsonify(
         {
             "ok": True,
+            "latest_status": (latest["status"] if latest else None),
             "has_pending": has_pending,
             "is_rejected": is_rejected,
             "message": CLIENT_WAITING_REVIEW_TEXT,
@@ -448,6 +537,11 @@ def purchase_status():
 @app.route("/my-videos")
 def my_videos_page():
     return render_template("my_videos.html")
+
+
+@app.route("/messages")
+def messages_page():
+    return render_template("messages.html")
 
 
 @app.get("/api/my-videos")
@@ -634,6 +728,12 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     db = get_db()
+<<<<<<< Updated upstream
+=======
+    cleanup_live_sessions(db)
+    today_start, tomorrow_start = tehran_day_range_utc_iso()
+    yesterday_start, today_start_for_yesterday = tehran_day_range_utc_iso(offset_days=-1)
+>>>>>>> Stashed changes
     requests_rows = db.execute(
         """
         SELECT pr.*, u.device_id, c.title as requested_category
@@ -657,21 +757,126 @@ def admin_dashboard():
     reports = db.execute(
         "SELECT * FROM reports ORDER BY id DESC LIMIT 300"
     ).fetchall()
+    testimonials = db.execute(
+        """
+        SELECT t.*, 
+               (
+                   SELECT GROUP_CONCAT(c.title, ' | ')
+                   FROM user_access ua
+                   JOIN categories c ON c.id = ua.category_id
+                   WHERE ua.user_id = t.user_id
+               ) AS category_titles
+        FROM testimonials t
+        ORDER BY t.id DESC
+        LIMIT 250
+        """
+    ).fetchall()
     visitors = db.execute(
         "SELECT * FROM visitors ORDER BY last_seen_at DESC LIMIT 500"
     ).fetchall()
+<<<<<<< Updated upstream
+=======
+    user_categories_rows = db.execute(
+        """
+        SELECT ua.user_id, GROUP_CONCAT(c.title, ' | ') AS category_titles
+        FROM user_access ua
+        JOIN categories c ON c.id = ua.category_id
+        GROUP BY ua.user_id
+        """
+    ).fetchall()
+    user_categories = {row["user_id"]: row["category_titles"] for row in user_categories_rows}
+    online_total = db.execute(
+        "SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions"
+    ).fetchone()["c"]
+    downloading_now = db.execute(
+        "SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions"
+    ).fetchone()["c"]
+    online_by_page_rows = db.execute(
+        """
+        SELECT page_key, COUNT(DISTINCT device_id) AS c
+        FROM presence_sessions
+        GROUP BY page_key
+        ORDER BY c DESC, page_key ASC
+        """ 
+    ).fetchall()
+    online_by_page = {row["page_key"]: row["c"] for row in online_by_page_rows}
+    print(today_start)
+    print(tomorrow_start)
+
+>>>>>>> Stashed changes
     stats = {
         "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
         "total_purchases": db.execute("SELECT COUNT(*) AS c FROM purchase_requests").fetchone()["c"],
         "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
+<<<<<<< Updated upstream
     }
 
+=======
+        "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
+        "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "pending_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='pending'").fetchone()["c"],
+        "online_total": online_total,
+        "downloading_now": downloading_now,
+        "today_purchases": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "today_approved": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "today_rejected": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "today_visitors": db.execute(
+            "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "yesterday_purchases": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_approved": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_rejected": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_visitors": db.execute(
+            "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+    }
+
+    requests_rows_view = []
+    for row in requests_rows:
+        row_dict = dict(row)
+        row_dict["created_at_fa"] = format_tehran(row["created_at"])
+        row_dict["reviewed_at_fa"] = format_tehran(row["reviewed_at"])
+        row_dict["category_titles"] = user_categories.get(row["user_id"]) or "-"
+        requests_rows_view.append(row_dict)
+    reports_view = []
+    for row in reports:
+        row_dict = dict(row)
+        row_dict["created_at_fa"] = format_tehran(row["created_at"])
+        row_dict["replied_at_fa"] = format_tehran(row["replied_at"])
+        row_dict["category_titles"] = user_categories.get(row["user_id"]) or "-"
+        reports_view.append(row_dict)
+>>>>>>> Stashed changes
     return render_template(
         "admin_dashboard.html",
         requests_rows=requests_rows,
         categories=categories,
         videos=videos,
+<<<<<<< Updated upstream
         reports=reports,
+=======
+        reports=reports_view,
+        testimonials=testimonials,
+>>>>>>> Stashed changes
         visitors=visitors,
         stats=stats,
     )
@@ -754,6 +959,62 @@ def submit_report():
     return jsonify({"ok": True, "message": "ریپورت ثبت شد و برای ادمین ارسال شد."})
 
 
+<<<<<<< Updated upstream
+=======
+@app.get("/api/my-report-replies")
+def api_my_report_replies():
+    device_id = request.args.get("device_id", "").strip()
+    if not device_id:
+        return jsonify({"ok": True, "items": []})
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT id, reporter_name, report_type, report_text, admin_reply, created_at, replied_at, user_seen_at
+        FROM reports
+        WHERE device_id=? AND admin_reply IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 20
+        """,
+        (device_id,),
+    ).fetchall()
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "reporter_name": row["reporter_name"],
+                "id": row["id"],
+                "report_type": row["report_type"],
+                "report_text": row["report_text"],
+                "admin_reply": row["admin_reply"],
+                "created_at": format_tehran(row["created_at"]),
+                "replied_at": format_tehran(row["replied_at"]),
+                "is_seen": bool(row["user_seen_at"]),
+            }
+        )
+    unseen_count = sum(1 for item in items if not item["is_seen"])
+    return jsonify({"ok": True, "items": items, "unseen_count": unseen_count})
+
+
+@app.post("/api/my-report-replies/mark-seen")
+def api_mark_replies_seen():
+    payload = request.get_json(silent=True) or {}
+    device_id = (payload.get("device_id") or "").strip()
+    if not device_id:
+        return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
+    db = get_db()
+    db.execute(
+        """
+        UPDATE reports
+        SET user_seen_at=?
+        WHERE device_id=? AND admin_reply IS NOT NULL AND user_seen_at IS NULL
+        """,
+        (now_iso(), device_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+>>>>>>> Stashed changes
 @app.get("/api/category-likes")
 def category_likes():
     device_id = request.args.get("device_id", "").strip()
@@ -882,6 +1143,41 @@ def admin_delete_category(category_id):
     return jsonify({"ok": True})
 
 
+<<<<<<< Updated upstream
+=======
+@app.post("/admin/api/videos/<int:video_id>/delete")
+@admin_required
+def admin_delete_video(video_id):
+    db = get_db()
+    video = db.execute("SELECT * FROM videos WHERE id=?", (video_id,)).fetchone()
+    if not video:
+        return jsonify({"ok": False, "message": "فایل پیدا نشد."}), 404
+
+    if video["file_path"]:
+        full = os.path.join(VIDEOS_DIR, video["file_path"])
+        if os.path.exists(full):
+            try:
+                os.remove(full)
+            except OSError:
+                pass
+    db.execute("DELETE FROM videos WHERE id=?", (video_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/testimonials/<int:testimonial_id>/delete")
+@admin_required
+def admin_delete_testimonial(testimonial_id):
+    db = get_db()
+    row = db.execute("SELECT id FROM testimonials WHERE id=?", (testimonial_id,)).fetchone()
+    if not row:
+        return jsonify({"ok": False, "message": "نظر پیدا نشد."}), 404
+    db.execute("DELETE FROM testimonials WHERE id=?", (testimonial_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+>>>>>>> Stashed changes
 @app.post("/admin/api/videos")
 @admin_required
 def admin_create_video():
@@ -968,6 +1264,96 @@ def admin_ban_by_device():
     return jsonify({"ok": True})
 
 
+<<<<<<< Updated upstream
+=======
+@app.get("/admin/api/live-stats")
+@admin_required
+def admin_live_stats():
+    db = get_db()
+    cleanup_live_sessions(db)
+    today_start, tomorrow_start = tehran_day_range_utc_iso()
+    yesterday_start, today_start_for_yesterday = tehran_day_range_utc_iso(offset_days=-1)
+    online_by_page_rows = db.execute(
+        """
+        SELECT page_key, COUNT(DISTINCT device_id) AS c
+        FROM presence_sessions
+        GROUP BY page_key
+        ORDER BY c DESC, page_key ASC
+        """
+    ).fetchall()
+    online_by_page = {row["page_key"]: row["c"] for row in online_by_page_rows}
+    stats = {
+        "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
+        "total_purchases": db.execute("SELECT COUNT(*) AS c FROM purchase_requests").fetchone()["c"],
+        "total_reports": db.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"],
+        "approved_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved'").fetchone()["c"],
+        "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
+        "online_total": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions").fetchone()["c"],
+        "downloading_now": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions").fetchone()["c"],
+        "latest_purchase_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM purchase_requests").fetchone()["m"],
+        "latest_report_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM reports").fetchone()["m"],
+        "today_purchases": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "today_approved": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "today_rejected": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "today_visitors": db.execute(
+            "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
+            (today_start, tomorrow_start),
+        ).fetchone()["c"],
+        "yesterday_purchases": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_approved": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='approved' AND created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_rejected": db.execute(
+            "SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected' AND created_at>=? AND created_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+        "yesterday_visitors": db.execute(
+            "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
+            (yesterday_start, today_start_for_yesterday),
+        ).fetchone()["c"],
+    }
+    return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page})
+
+
+@app.post("/admin/api/reports/<int:report_id>/reply")
+@admin_required
+def admin_reply_report(report_id):
+    reply_text = request.form.get("reply_text", "").strip()
+    if not reply_text:
+        return jsonify({"ok": False, "message": "متن پاسخ اجباری است."}), 400
+
+    db = get_db()
+    report = db.execute("SELECT id FROM reports WHERE id=?", (report_id,)).fetchone()
+    if not report:
+        return jsonify({"ok": False, "message": "ریپورت پیدا نشد."}), 404
+    db.execute(
+        "UPDATE reports SET admin_reply=?, replied_at=?, user_seen_at=NULL WHERE id=?",
+        (reply_text, now_iso(), report_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.get("/admin/api/backup-db")
+@admin_required
+def admin_backup_db():
+    return send_file(DB_PATH, as_attachment=True, download_name=f"data-backup-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.db")
+
+
+>>>>>>> Stashed changes
 @app.get("/admin/receipt/<filename>")
 @admin_required
 def admin_view_receipt(filename):
