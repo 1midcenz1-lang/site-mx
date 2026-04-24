@@ -64,15 +64,15 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-now")
 app.config["ADMIN_USER"] = os.environ.get("ADMIN_USER", "admin")
 app.config["ADMIN_PASS"] = os.environ.get("ADMIN_PASS", "mx9091")
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 1GB
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 10GB
 
 
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 ONLINE_SECONDS = 120
 DOWNLOAD_ACTIVE_SECONDS = 180
-SITE_UPDATE_MODE = False
+SITE_UPDATE_MODE = True
 SITE_DOMAIN_MOVE_MODE = False
-SITE_DOMAIN_MOVE_TARGET = "https://example.com"
+SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
 
 
 def tehran_now_iso() -> str:
