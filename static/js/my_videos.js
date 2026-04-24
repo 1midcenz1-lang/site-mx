@@ -22,6 +22,21 @@
   localStorage.setItem("mx_device_id", deviceId);
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 
+  function showNotificationGuidePopup() {
+    if (!("Notification" in window)) return;
+    const guideKey = `mx_notif_guide_shown_${new Date().toISOString().slice(0, 10)}`;
+    if (localStorage.getItem(guideKey) === "1") return;
+    if (Notification.permission === "granted") {
+      alert("پس از تایید ادمین از طریق نوتیف به شما اطلاع داده میشود.");
+    } else {
+      alert("لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+      if (Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+      }
+    }
+    localStorage.setItem(guideKey, "1");
+  }
+
   async function loadVideos() {
     listBox.innerHTML = "";
     approvedText.classList.remove("error");
@@ -40,6 +55,7 @@
 
       approvedText.classList.remove("error");
       approvedText.textContent = data.approved_text;
+      showNotificationGuidePopup();
 
       if (!data.categories.length) {
         listBox.innerHTML = "<div class='card'>هنوز دسترسی فعالی برای این دستگاه ثبت نشده است.</div>";
@@ -65,7 +81,7 @@
         cat.videos.forEach((v) => {
           const link = document.createElement("a");
           const watch = `${v.watch_url}?device_id=${encodeURIComponent(deviceId)}`;
-          link.href = watch;
+          link.href = v.type === "url" && v.external_url ? v.external_url : watch;
           link.className = "btn";
           link.target = isIOS ? "_self" : "_blank";
           link.textContent = v.title;

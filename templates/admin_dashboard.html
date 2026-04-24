@@ -187,7 +187,7 @@
   <h2>نظرات کاربران</h2>
   <table>
     <thead>
-      <tr><th>کاربر</th><th>اشتراک‌ها</th><th>متن</th><th>عملیات</th></tr>
+      <tr><th>کاربر</th><th>اشتراک‌ها</th><th>متن</th><th>وضعیت</th><th>عملیات</th></tr>
     </thead>
     <tbody>
       {% for t in testimonials %}
@@ -195,7 +195,16 @@
         <td>{{ t.display_name }}</td>
         <td class="tiny-text">{{ t.category_titles or '-' }}</td>
         <td>{{ t.content }}</td>
-        <td><button class="btn small btn-danger delete-testimonial-btn" data-testimonial-id="{{ t.id }}" type="button">حذف</button></td>
+        <td>{{ t.status }}</td>
+        <td>
+          {% if t.status != 'approved' %}
+          <button class="btn small approve-testimonial-btn" data-testimonial-id="{{ t.id }}" type="button">تایید</button>
+          {% endif %}
+          {% if t.status != 'rejected' %}
+          <button class="btn small btn-ghost reject-testimonial-btn" data-testimonial-id="{{ t.id }}" type="button">رد</button>
+          {% endif %}
+          <button class="btn small btn-danger delete-testimonial-btn" data-testimonial-id="{{ t.id }}" type="button">حذف</button>
+        </td>
       </tr>
       {% endfor %}
     </tbody>

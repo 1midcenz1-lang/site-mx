@@ -80,6 +80,10 @@
     const reportPanel = document.getElementById("report-panel");
     const reportToggle = document.getElementById("report-toggle");
     const surveyToggle = document.getElementById("survey-toggle");
+    const surveyPanel = document.getElementById("survey-panel");
+    const surveyForm = document.getElementById("survey-form");
+    const surveyResult = document.getElementById("survey-result");
+    const surveyDeviceInput = document.getElementById("survey_device_id");
     const reportReplies = document.getElementById("report-replies");
     const messagesToggle = document.getElementById("admin-messages-toggle");
     const adminReplyBanner = document.getElementById("admin-reply-banner");
@@ -108,6 +112,7 @@
     });
 
     if (reportDeviceInput) reportDeviceInput.value = deviceId;
+    if (surveyDeviceInput) surveyDeviceInput.value = deviceId;
 
     if (reportToggle && reportPanel) {
       reportToggle.addEventListener("click", () => {
@@ -121,9 +126,15 @@
     }
     if (surveyToggle && reportPanel) {
       surveyToggle.addEventListener("click", () => {
-        reportPanel.classList.remove("hidden");
-        if (reportTypeSelect) reportTypeSelect.value = "نظرسنجی";
-        reportPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (surveyPanel) {
+          surveyPanel.classList.toggle("hidden");
+          reportPanel.classList.add("hidden");
+          if (!surveyPanel.classList.contains("hidden")) {
+            surveyPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+            const textArea = surveyForm ? surveyForm.querySelector("textarea[name='testimonial_text']") : null;
+            if (textArea) textArea.focus({ preventScroll: true });
+          }
+        }
       });
     }
     if (messagesToggle) {
@@ -155,9 +166,40 @@
           reportResult.textContent = data.message;
           reportForm.reset();
           if (reportDeviceInput) reportDeviceInput.value = deviceId;
+          if ("Notification" in window) {
+            if (Notification.permission === "granted") {
+              alert("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
+            } else {
+              alert("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+            }
+          }
         } catch (_err) {
           reportResult.classList.add("error");
           reportResult.textContent = "خطای ارتباط با سرور";
+        }
+      });
+    }
+
+    if (surveyForm && surveyResult) {
+      surveyForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        surveyResult.classList.remove("error");
+        surveyResult.textContent = "در حال ارسال نظر...";
+        const fd = new FormData(surveyForm);
+        try {
+          const res = await fetch("/api/testimonials", { method: "POST", body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            surveyResult.classList.add("error");
+            surveyResult.textContent = data.message || "خطا در ثبت نظر";
+            return;
+          }
+          surveyResult.textContent = data.message;
+          surveyForm.reset();
+          if (surveyDeviceInput) surveyDeviceInput.value = deviceId;
+        } catch (_err) {
+          surveyResult.classList.add("error");
+          surveyResult.textContent = "خطای ارتباط با سرور";
         }
       });
     }

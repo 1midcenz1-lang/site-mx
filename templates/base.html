@@ -33,7 +33,6 @@
           <option value="مستحجن">مستحجن</option>
           <option value="کلاهبرداری">کلاهبرداری</option>
           <option value="پشتیبانی">پشتیبانی</option>
-          <option value="نظرسنجی">نظرسنجی خریداران</option>
         </select>
         <label>توضیحات</label>
         <textarea name="report_text" rows="3" required></textarea>
@@ -41,6 +40,16 @@
       </form>
       <div id="report-result" class="result-box"></div>
       <div id="report-replies" class="result-box hidden"></div>
+    </section>
+    <section id="survey-panel" class="form-card report-box hidden">
+      <h3>ثبت نظر مشترکین</h3>
+      <form id="survey-form">
+        <input type="hidden" name="device_id" id="survey_device_id" />
+        <label>متن نظر</label>
+        <textarea name="testimonial_text" rows="3" required></textarea>
+        <button class="btn" type="submit">ثبت نظر</button>
+      </form>
+      <div id="survey-result" class="result-box"></div>
     </section>
 
     {% endif %}
