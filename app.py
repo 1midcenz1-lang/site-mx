@@ -70,6 +70,9 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 1GB
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 ONLINE_SECONDS = 120
 DOWNLOAD_ACTIVE_SECONDS = 180
+SITE_UPDATE_MODE = False
+SITE_DOMAIN_MOVE_MODE = False
+SITE_DOMAIN_MOVE_TARGET = "https://example.com"
 
 
 def tehran_now_iso() -> str:
@@ -377,6 +380,44 @@ def admin_required(func):
     return wrapper
 
 
+@app.before_request
+def site_global_modes():
+    endpoint = request.endpoint or ""
+    path = request.path or "/"
+    public_exempt_endpoints = {
+        "static",
+        "admin_login",
+        "admin_logout",
+        "admin_dashboard",
+        "admin_live_stats",
+        "admin_backup_db",
+        "admin_view_receipt",
+        "acme_challenge",
+        "site_update_page",
+        "site_domain_move_page",
+    }
+    if endpoint in public_exempt_endpoints:
+        return None
+    if path.startswith("/admin"):
+        return None
+
+    if SITE_UPDATE_MODE:
+        if path.startswith("/api/"):
+            return jsonify({"ok": False, "message": "سایت در حال بروزرسانی است."}), 503
+        return redirect(url_for("site_update_page"))
+
+    if SITE_DOMAIN_MOVE_MODE:
+        if path.startswith("/api/"):
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": "سایت به دامنه جدید منتقل شده است.",
+                    "target_url": SITE_DOMAIN_MOVE_TARGET,
+                }
+            ), 503
+        return redirect(url_for("site_domain_move_page"))
+
+
 @app.route("/")
 def home():
     db = get_db()
@@ -397,6 +438,16 @@ def home():
         """
     ).fetchall()
     return render_template("home.html", categories=categories, testimonials=testimonials)
+
+
+@app.route("/site-update")
+def site_update_page():
+    return render_template("site_update.html")
+
+
+@app.route("/site-domain-moved")
+def site_domain_move_page():
+    return render_template("site_domain_moved.html", target_url=SITE_DOMAIN_MOVE_TARGET)
 
 
 @app.route("/samples/<slug>")

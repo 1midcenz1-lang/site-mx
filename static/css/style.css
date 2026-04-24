@@ -319,6 +319,59 @@ th { background: rgba(30, 41, 59, 0.75); }
   transform: rotate(-90deg);
 }
 
+.status-page {
+  width: min(100%, 760px);
+  margin: 38px auto;
+  padding: 34px 24px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.68));
+  text-align: center;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.42);
+}
+.status-page h1 {
+  margin: 12px 0 10px;
+}
+.status-page p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  line-height: 1.9;
+}
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.status-page-update .status-badge {
+  background: rgba(6, 182, 212, 0.18);
+  border-color: rgba(6, 182, 212, 0.45);
+}
+.status-page-domain .status-badge {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: rgba(124, 58, 237, 0.45);
+}
+.status-loader {
+  width: 54px;
+  height: 54px;
+  margin: 14px auto 14px;
+  border-radius: 999px;
+  border: 4px solid rgba(148, 163, 184, 0.25);
+  border-top-color: #06b6d4;
+  animation: spin 1s linear infinite;
+}
+.status-link-btn {
+  margin: 6px 0 12px;
+  word-break: break-all;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 700px) {
   .container { padding: 14px; }
   .hero h1 { font-size: 24px; }
