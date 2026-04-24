@@ -70,7 +70,7 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 10GB
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 ONLINE_SECONDS = 120
 DOWNLOAD_ACTIVE_SECONDS = 180
-SITE_UPDATE_MODE = True
+SITE_UPDATE_MODE = False
 SITE_DOMAIN_MOVE_MODE = False
 SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
 
@@ -1553,4 +1553,5 @@ def acme_challenge(filename):
     )
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
