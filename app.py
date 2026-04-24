@@ -64,7 +64,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-now")
 app.config["ADMIN_USER"] = os.environ.get("ADMIN_USER", "admin")
 app.config["ADMIN_PASS"] = os.environ.get("ADMIN_PASS", "mx9091")
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 1GB
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 10GB
 
 
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
@@ -1435,4 +1435,5 @@ def acme_challenge(filename):
     )
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
