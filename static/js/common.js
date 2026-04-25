@@ -52,6 +52,7 @@
       deviceId = buildDeviceFingerprint();
       localStorage.setItem("mx_device_id", deviceId);
     }
+    document.cookie = `mx_device_id=${encodeURIComponent(deviceId)}; Max-Age=31536000; Path=/; SameSite=Lax`;
     return { deviceId };
   }
 
@@ -194,6 +195,11 @@
           const res = await fetch("/api/report", { method: "POST", body: fd });
           const data = await res.json();
           if (!res.ok || !data.ok) {
+            if (data && data.login_required) {
+              const next = encodeURIComponent(window.location.href);
+              window.location.href = `/login?next=${next}`;
+              return;
+            }
             reportResult.classList.add("error");
             reportResult.textContent = data.message || "خطا در ارسال ریپورت";
             return;

@@ -532,6 +532,34 @@ def current_auth_user(db=None):
     return local_db.execute("SELECT * FROM auth_users WHERE id=?", (auth_user_id,)).fetchone()
 
 
+def get_device_id_from_request(payload: dict | None = None) -> str:
+    if payload and payload.get("device_id"):
+        return str(payload.get("device_id")).strip()
+    form_val = request.form.get("device_id", "").strip()
+    if form_val:
+        return form_val
+    query_val = request.args.get("device_id", "").strip()
+    if query_val:
+        return query_val
+    return request.cookies.get("mx_device_id", "").strip()
+
+
+def require_auth_for_api(db, payload: dict | None = None):
+    auth_user = current_auth_user(db=db)
+    if not auth_user:
+        return None, jsonify({"ok": False, "message": "ابتدا وارد حساب شوید.", "login_required": True}), 401
+    device_id = get_device_id_from_request(payload=payload)
+    if not device_id:
+        return None, jsonify({"ok": False, "message": "شناسه دستگاه پیدا نشد.", "login_required": True}), 401
+    bind = db.execute(
+        "SELECT id FROM auth_user_devices WHERE auth_user_id=? AND device_id=?",
+        (auth_user["id"], device_id),
+    ).fetchone()
+    if not bind:
+        return None, jsonify({"ok": False, "message": "دستگاه شما برای این اکانت مجاز نیست.", "login_required": True}), 403
+    return (auth_user, device_id), None, None
+
+
 def bind_device_to_auth_user(auth_user_id: int, device_id: str, db):
     max_devices = setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)
     existing = db.execute(
@@ -685,6 +713,14 @@ def iphone_chrome_required_page():
     return render_template("iphone_chrome_required.html", next_url=next_url, open_url=open_url)
 
 
+@app.get("/login")
+def login_page():
+    next_url = request.args.get("next", url_for("home"))
+    if session.get("auth_user_id"):
+        return redirect(next_url)
+    return render_template("login.html", next_url=next_url)
+
+
 @app.post("/api/auth/login")
 def api_auth_login():
     payload = request.get_json(silent=True) or {}
@@ -719,7 +755,7 @@ def api_auth_login():
 
 @app.get("/api/auth/status")
 def api_auth_status():
-    device_id = (request.args.get("device_id") or "").strip()
+    device_id = get_device_id_from_request()
     db = get_db()
     user = current_auth_user(db=db)
     if not user:
@@ -799,6 +835,8 @@ def api_presence():
 
 @app.route("/buy/<slug>")
 def buy_page(slug):
+    if not session.get("auth_user_id"):
+        return redirect(url_for("login_page", next=request.full_path.rstrip("?")))
     db = get_db()
     category = db.execute("SELECT * FROM categories WHERE slug=?", (slug,)).fetchone()
     if not category:
@@ -808,7 +846,7 @@ def buy_page(slug):
 
 @app.post("/api/submit-request")
 def submit_request():
-    device_id = request.form.get("device_id", "").strip()
+    device_id = get_device_id_from_request()
     category_id = request.form.get("category_id", "").strip()
     receipt = request.files.get("receipt")
 
@@ -816,15 +854,10 @@ def submit_request():
         return jsonify({"ok": False, "message": "شناسه دستگاه و فیش الزامی هستند."}), 400
 
     db = get_db()
-    auth_user = current_auth_user(db=db)
-    if not auth_user:
-        return jsonify({"ok": False, "message": "ابتدا وارد حساب کاربری شوید."}), 401
-    device_bind = db.execute(
-        "SELECT id FROM auth_user_devices WHERE auth_user_id=? AND device_id=?",
-        (auth_user["id"], device_id),
-    ).fetchone()
-    if not device_bind:
-        return jsonify({"ok": False, "message": "این دستگاه برای اکانت شما مجاز نیست."}), 403
+    auth_result, err_resp, err_status = require_auth_for_api(db)
+    if err_resp is not None:
+        return err_resp, err_status
+    auth_user, _bound_device_id = auth_result
 
     register_visit(device_id, db=db)
     category = db.execute("SELECT * FROM categories WHERE id=?", (category_id,)).fetchone()
@@ -1396,13 +1429,18 @@ def admin_reset_request_pending(request_id):
 def submit_report():
     report_type = request.form.get("report_type", "").strip()
     report_text = request.form.get("report_text", "").strip()
-    device_id = request.form.get("device_id", "").strip()
+    device_id = get_device_id_from_request()
     allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی"}
 
     if report_type not in allowed_types or not report_text or not device_id:
         return jsonify({"ok": False, "message": "اطلاعات ریپورت کامل نیست."}), 400
 
     db = get_db()
+    auth_result, err_resp, err_status = require_auth_for_api(db)
+    if err_resp is not None:
+        return err_resp, err_status
+    _auth_user, _bound_device_id = auth_result
+
     register_visit(device_id, db=db)
     visitor = db.execute("SELECT * FROM visitors WHERE device_id=?", (device_id,)).fetchone()
     if visitor and visitor["is_banned"]:

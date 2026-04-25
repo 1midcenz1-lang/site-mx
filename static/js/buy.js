@@ -3,8 +3,6 @@
   if (!form) return;
 
   const output = document.getElementById("form-result");
-  const authForm = document.getElementById("auth-form");
-  const authResult = document.getElementById("auth-result");
   const pendingNote = document.getElementById("pending-note");
   const deviceInput = document.getElementById("device_id");
   const submitBtn = form.querySelector("button[type='submit']");
@@ -41,8 +39,9 @@
       const data = await res.json();
       isLoggedIn = Boolean(res.ok && data.ok && data.logged_in);
       if (!isLoggedIn) {
-        output.classList.add("error");
-        output.textContent = "برای ثبت خرید ابتدا وارد حساب کاربری شوید.";
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?next=${next}`;
+        return;
       } else {
         output.classList.remove("error");
         output.textContent = `وارد شده‌اید: ${data.username || "-"}`;
@@ -51,34 +50,6 @@
     } catch (_err) {
       setBuyEnabled(false);
     }
-  }
-
-  if (authForm) {
-    authForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      authResult.classList.remove("error");
-      authResult.textContent = "در حال ورود...";
-      const username = (document.getElementById("auth-username")?.value || "").trim();
-      const password = (document.getElementById("auth-password")?.value || "").trim();
-      try {
-        const res = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password, device_id: deviceId }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          authResult.classList.add("error");
-          authResult.textContent = data.message || "خطا در ورود";
-          return;
-        }
-        authResult.textContent = `ورود موفق: ${data.username}`;
-        await refreshAuthStatus();
-      } catch (_err) {
-        authResult.classList.add("error");
-        authResult.textContent = "خطای ارتباط با سرور";
-      }
-    });
   }
 
   async function recoverFromPendingState() {
@@ -130,6 +101,11 @@
       clearTimeout(timer);
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        if (data && data.login_required) {
+          const next = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = `/login?next=${next}`;
+          return;
+        }
         output.classList.add("error");
         output.textContent = data.message || "خطا در ثبت درخواست";
         if (data.pending_exists) {

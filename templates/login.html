@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}ورود کاربر{% endblock %}
+{% block content %}
+<section class="hero hero-glass">
+  <h1>ورود به حساب</h1>
+  <p>برای خرید و ارسال ریپورت باید وارد حساب شوید.</p>
+</section>
+
+<section class="form-card">
+  <form id="login-form">
+    <input type="hidden" id="next_url" value="{{ next_url }}" />
+    <label>نام کاربری</label>
+    <input id="login-username" required minlength="3" />
+    <label>رمز عبور</label>
+    <input id="login-password" type="password" required minlength="4" />
+    <button class="btn" type="submit">ورود / ثبت نام</button>
+  </form>
+  <div id="login-result" class="result-box"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/login.js"></script>
+{% endblock %}
