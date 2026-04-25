@@ -272,8 +272,8 @@ def modes():
 @app.route("/")
 def home():
     mdb = mongo_db()
-    categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1)) if mdb else []
-    testimonials = list(mdb["testimonials"].find({"status": "approved"}, {"_id": 0}).sort("id", -1).limit(160)) if mdb else []
+    categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1)) if mdb is not None else []
+    testimonials = list(mdb["testimonials"].find({"status": "approved"}, {"_id": 0}).sort("id", -1).limit(160)) if mdb is not None else []
     return render_template("home.html", categories=categories, testimonials=testimonials)
 
 
@@ -282,7 +282,7 @@ def buy_page(slug):
     if not session.get("auth_access_code"):
         return redirect(url_for("login_page", next=request.full_path.rstrip("?")))
     mdb = mongo_db()
-    category = mdb["categories"].find_one({"slug": slug}, {"_id": 0}) if mdb else None
+    category = mdb["categories"].find_one({"slug": slug}, {"_id": 0}) if mdb is not None else None
     if not category:
         abort(404)
     return render_template("buy.html", category=category)
@@ -349,7 +349,7 @@ def api_auth_status():
     if not user:
         return jsonify({"ok": True, "logged_in": False})
     did = get_device_id_from_request()
-    has = bool(mdb and mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": did}))
+    has = bool(mdb is not None and mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": did}))
     return jsonify({"ok": True, "logged_in": has, "access_code": user["access_code"], "max_devices": setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)})
 
 
@@ -375,7 +375,7 @@ def api_register_visit():
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
     register_visit(did)
     mdb = mongo_db()
-    v = mdb["visitors"].find_one({"device_id": did}) if mdb else None
+    v = mdb["visitors"].find_one({"device_id": did}) if mdb is not None else None
     if v and int(v.get("is_banned", 0)) == 1:
         return jsonify({"ok": False, "message": "مسدود شده"}), 403
     return jsonify({"ok": True})
@@ -390,7 +390,7 @@ def api_presence():
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
     register_visit(did)
     mdb = mongo_db()
-    if mdb:
+    if mdb is not None:
         mdb["presence_sessions"].update_one({"device_id": did, "page_key": page_key}, {"$set": {"updated_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True})
 
@@ -462,7 +462,7 @@ def submit_report():
 def my_replies():
     did = request.args.get("device_id", "").strip()
     mdb = mongo_db()
-    if not mdb or not did:
+    if mdb is None or not did:
         return jsonify({"ok": True, "items": [], "unseen_count": 0})
     rows = list(mdb["reports"].find({"device_id": did, "admin_reply": {"$ne": None}}, {"_id": 0}).sort("id", -1).limit(20))
     unseen = sum(1 for x in rows if not x.get("user_seen_at"))
@@ -473,7 +473,7 @@ def my_replies():
 def mark_replies_seen():
     did = get_device_id_from_request(request.get_json(silent=True) or {})
     mdb = mongo_db()
-    if not mdb or not did:
+    if mdb is None or not did:
         return jsonify({"ok": False}), 400
     mdb["reports"].update_many({"device_id": did, "admin_reply": {"$ne": None}, "user_seen_at": None}, {"$set": {"user_seen_at": now_iso()}})
     return jsonify({"ok": True})
@@ -483,7 +483,7 @@ def mark_replies_seen():
 def category_likes():
     did = request.args.get("device_id", "").strip()
     mdb = mongo_db()
-    if not mdb:
+    if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
     counts = {}
     for row in mdb["category_likes"].aggregate([{"$group": {"_id": "$category_id", "c": {"$sum": 1}}}]):
@@ -499,7 +499,7 @@ def toggle_like():
     cid = int(payload.get("category_id") or 0)
     desired = bool(payload.get("liked"))
     mdb = mongo_db()
-    if not mdb or not did or not cid:
+    if mdb is None or not did or not cid:
         return jsonify({"ok": False}), 400
     coll = mdb["category_likes"]
     exists = coll.find_one({"device_id": did, "category_id": cid})
@@ -515,7 +515,7 @@ def toggle_like():
 def api_my_videos():
     did = request.args.get("device_id", "").strip()
     mdb = mongo_db()
-    if not mdb or not did:
+    if mdb is None or not did:
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
     user = mdb["users"].find_one({"device_id": did})
     if not user:
@@ -538,7 +538,7 @@ def api_my_videos():
 def api_my_videos_summary():
     did = request.args.get("device_id", "").strip()
     mdb = mongo_db()
-    if not mdb or not did:
+    if mdb is None or not did:
         return jsonify({"ok": True, "total_categories": 0, "unseen_categories": 0})
     user = mdb["users"].find_one({"device_id": did})
     if not user:
@@ -553,7 +553,7 @@ def api_mark_seen():
     payload = request.get_json(silent=True) or {}
     did = get_device_id_from_request(payload)
     mdb = mongo_db()
-    if not mdb or not did:
+    if mdb is None or not did:
         return jsonify({"ok": False}), 400
     user = mdb["users"].find_one({"device_id": did})
     if not user:
@@ -566,7 +566,7 @@ def api_mark_seen():
 @app.get("/api/watch/<int:video_id>")
 def api_watch(video_id):
     mdb = mongo_db()
-    if not mdb:
+    if mdb is None:
         abort(404)
     video = mdb["videos"].find_one({"id": video_id}, {"_id": 0})
     if not video:
@@ -629,11 +629,58 @@ def admin_dashboard():
     return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], online_by_page={}, stats={"online_total": 0, "downloading_now": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}, visitors_limit=300, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
 
 
+@app.get("/admin/api/live-stats")
+@admin_required
+def admin_live_stats():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable", "stats": {}, "online_by_page": {}}), 503
+
+    now = datetime.utcnow()
+    active_since = (now - timedelta(seconds=60)).isoformat()
+    online_since = (now - timedelta(minutes=5)).isoformat()
+    today_start, today_end = iso_day_bounds_utc(0)
+    y_start, y_end = iso_day_bounds_utc(1)
+    stats = {
+        "online_total": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}}),
+        "active_last_minute": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": active_since}}),
+        "downloading_now": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}, "page_key": {"$regex": "buy|my-videos|watch"}}),
+        "total_reports": mdb["reports"].count_documents({}),
+        "total_visitors": mdb["visitors"].count_documents({}),
+        "total_purchases": mdb["purchase_requests"].count_documents({}),
+        "approved_receipts": mdb["purchase_requests"].count_documents({"status": "approved"}),
+        "rejected_receipts": mdb["purchase_requests"].count_documents({"status": "rejected"}),
+        "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
+        "today_purchases": mdb["purchase_requests"].count_documents({"created_at": {"$gte": today_start, "$lt": today_end}}),
+        "today_approved": mdb["purchase_requests"].count_documents({"status": "approved", "reviewed_at": {"$gte": today_start, "$lt": today_end}}),
+        "today_rejected": mdb["purchase_requests"].count_documents({"status": "rejected", "reviewed_at": {"$gte": today_start, "$lt": today_end}}),
+        "today_visitors": mdb["visitors"].count_documents({"last_seen_at": {"$gte": today_start, "$lt": today_end}}),
+        "yesterday_purchases": mdb["purchase_requests"].count_documents({"created_at": {"$gte": y_start, "$lt": y_end}}),
+        "yesterday_approved": mdb["purchase_requests"].count_documents({"status": "approved", "reviewed_at": {"$gte": y_start, "$lt": y_end}}),
+        "yesterday_rejected": mdb["purchase_requests"].count_documents({"status": "rejected", "reviewed_at": {"$gte": y_start, "$lt": y_end}}),
+        "yesterday_visitors": mdb["visitors"].count_documents({"last_seen_at": {"$gte": y_start, "$lt": y_end}}),
+    }
+    latest_purchase = mdb["purchase_requests"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
+    latest_report = mdb["reports"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
+    stats["latest_purchase_id"] = int((latest_purchase or {}).get("id") or 0)
+    stats["latest_report_id"] = int((latest_report or {}).get("id") or 0)
+    stats["server_now"] = datetime.now(TEHRAN_TZ).isoformat()
+    stats["server_day"] = datetime.now(TEHRAN_TZ).strftime("%A")
+
+    pipeline = [
+        {"$match": {"updated_at": {"$gte": online_since}}},
+        {"$group": {"_id": "$page_key", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    online_by_page = {row.get("_id") or "unknown": int(row.get("count", 0)) for row in mdb["presence_sessions"].aggregate(pipeline)}
+    return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page, "mongo_ok": True})
+
+
 @app.post("/admin/api/settings")
 @admin_required
 def admin_update_settings():
     mdb = mongo_db()
-    if not mdb:
+    if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
     updates = {
         "site_update_mode": "1" if request.form.get("site_update_mode") == "1" else "0",
