@@ -626,7 +626,278 @@ def admin_login():
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
-    return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], online_by_page={}, stats={"online_total": 0, "downloading_now": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}, visitors_limit=300, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+    mdb = mongo_db()
+    base_stats = {"online_total": 0, "downloading_now": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
+    if mdb is None:
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], online_by_page={}, stats=base_stats, visitors_limit=300, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+
+    categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
+    cat_by_id = {c["id"]: c for c in categories}
+    videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(500))
+    for v in videos:
+        v["category_title"] = (cat_by_id.get(v.get("category_id")) or {}).get("title", "-")
+
+    users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
+    requests_rows = []
+    for r in mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1).limit(300):
+        user = users_by_id.get(r.get("user_id"), {})
+        req_cat = cat_by_id.get(r.get("requested_category_id"), {})
+        granted = []
+        for ua in mdb["user_access"].find({"user_id": r.get("user_id")}, {"_id": 0, "category_id": 1}):
+            c = cat_by_id.get(ua.get("category_id"))
+            if c:
+                granted.append(c["title"])
+        requests_rows.append({**r, "device_id": user.get("device_id", "-"), "requested_category": req_cat.get("title", "-"), "category_titles": ", ".join(granted) if granted else "-", "created_at_fa": r.get("created_at", "-")})
+
+    reports = list(mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(300))
+    testimonials = list(mdb["testimonials"].find({}, {"_id": 0}).sort("id", -1).limit(200))
+
+    limit = max(50, min(1000, int(request.args.get("limit", "300") or 300)))
+    q = (request.args.get("q") or "").strip()
+    vf = {}
+    if q:
+        vf = {"$or": [{"device_id": {"$regex": q, "$options": "i"}}, {"browser_name": {"$regex": q, "$options": "i"}}, {"os_name": {"$regex": q, "$options": "i"}}, {"device_model": {"$regex": q, "$options": "i"}}]}
+    visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(limit))
+
+    auth_users = []
+    for au in mdb["auth_users"].find({}, {"_id": 0}).sort("id", -1).limit(300):
+        devs = list(mdb["auth_user_devices"].find({"access_code": au.get("access_code")}, {"_id": 0, "last_seen_at": 1}))
+        auth_users.append({**au, "device_count": len(devs), "last_device_seen": max([d.get("last_seen_at", "") for d in devs], default=None)})
+
+    online_by_page = {row.get("_id") or "unknown": int(row.get("count", 0)) for row in mdb["presence_sessions"].aggregate([{"$group": {"_id": "$page_key", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}, {"$limit": 20}])}
+    base_stats.update({
+        "total_reports": mdb["reports"].count_documents({}),
+        "total_visitors": mdb["visitors"].count_documents({}),
+        "total_purchases": mdb["purchase_requests"].count_documents({}),
+        "approved_receipts": mdb["purchase_requests"].count_documents({"status": "approved"}),
+        "rejected_receipts": mdb["purchase_requests"].count_documents({"status": "rejected"}),
+        "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
+    })
+
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, online_by_page=online_by_page, stats=base_stats, visitors_limit=limit, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+
+
+@app.get("/admin/receipt/<path:filename>")
+@admin_required
+def admin_receipt(filename):
+    clean = secure_filename(filename)
+    full = os.path.join(RECEIPTS_DIR, clean)
+    if not os.path.exists(full):
+        abort(404)
+    return send_file(full)
+
+
+@app.post("/admin/api/categories")
+@admin_required
+def admin_create_category():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    title = (request.form.get("title") or "").strip()
+    slug = (request.form.get("slug") or "").strip().lower()
+    payment_text = (request.form.get("payment_text") or "").strip()
+    if not title or not slug or not payment_text:
+        return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
+    if mdb["categories"].find_one({"slug": slug}):
+        return jsonify({"ok": False, "message": "slug تکراری است"}), 409
+    mdb["categories"].insert_one({"id": mongo_next_id("categories"), "title": title, "slug": slug, "payment_text": payment_text, "created_at": now_iso()})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/categories/<int:category_id>/delete")
+@admin_required
+def admin_delete_category(category_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    for v in mdb["videos"].find({"category_id": category_id}, {"_id": 0, "file_path": 1}):
+        if v.get("file_path"):
+            try:
+                os.remove(os.path.join(VIDEOS_DIR, v["file_path"]))
+            except Exception:
+                pass
+    mdb["videos"].delete_many({"category_id": category_id})
+    mdb["user_access"].delete_many({"category_id": category_id})
+    mdb["categories"].delete_one({"id": category_id})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/videos")
+@admin_required
+def admin_create_video():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    title = (request.form.get("title") or "").strip()
+    category_id = int(request.form.get("category_id") or 0)
+    external_url = (request.form.get("external_url") or "").strip()
+    video_file = request.files.get("video_file")
+    if not title or not category_id:
+        return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
+    if not external_url and not video_file:
+        return jsonify({"ok": False, "message": "فایل یا لینک لازم است"}), 400
+    doc = {"id": mongo_next_id("videos"), "title": title, "category_id": category_id, "created_at": now_iso()}
+    if external_url:
+        doc.update({"source_type": "url", "external_url": external_url, "file_path": None})
+    else:
+        filename = secure_filename(video_file.filename or "")
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ALLOWED_ARCHIVE_EXTENSIONS:
+            return jsonify({"ok": False, "message": "فقط ZIP مجاز است"}), 400
+        final = f"{uuid.uuid4().hex}_{filename}"
+        video_file.save(os.path.join(VIDEOS_DIR, final))
+        doc.update({"source_type": "file", "external_url": None, "file_path": final})
+    mdb["videos"].insert_one(doc)
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/videos/<int:video_id>/delete")
+@admin_required
+def admin_delete_video(video_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    row = mdb["videos"].find_one({"id": video_id})
+    if row and row.get("file_path"):
+        try:
+            os.remove(os.path.join(VIDEOS_DIR, row["file_path"]))
+        except Exception:
+            pass
+    mdb["videos"].delete_one({"id": video_id})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/requests/<int:rid>/approve")
+@admin_required
+def admin_approve_request(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    req = mdb["purchase_requests"].find_one({"id": rid})
+    if not req:
+        return jsonify({"ok": False, "message": "درخواست پیدا نشد"}), 404
+    category_ids = [int(x) for x in request.form.getlist("category_ids") if str(x).isdigit()]
+    if not category_ids and req.get("requested_category_id"):
+        category_ids = [int(req["requested_category_id"])]
+    for cid in category_ids:
+        mdb["user_access"].update_one({"user_id": req["user_id"], "category_id": cid}, {"$set": {"granted_at": now_iso()}}, upsert=True)
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "approved", "reviewed_at": now_iso(), "admin_note": None}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/requests/<int:rid>/reject")
+@admin_required
+def admin_reject_request(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"ok": False, "message": "دلیل رد لازم است"}), 400
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "rejected", "reviewed_at": now_iso(), "admin_note": reason}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/requests/<int:rid>/reset-pending")
+@admin_required
+def admin_reset_pending(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/reports/<int:rid>/reply")
+@admin_required
+def admin_reply_report(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    reply = (request.form.get("reply") or "").strip()
+    if not reply:
+        return jsonify({"ok": False, "message": "پاسخ خالی است"}), 400
+    mdb["reports"].update_one({"id": rid}, {"$set": {"admin_reply": reply, "replied_at": now_iso(), "user_seen_at": None}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/device-ban")
+@admin_required
+def admin_device_ban():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    did = (request.form.get("device_id") or "").strip()
+    if not did:
+        return jsonify({"ok": False, "message": "device_id لازم است"}), 400
+    mdb["visitors"].update_one({"device_id": did}, {"$set": {"is_banned": 1, "last_seen_at": now_iso()}}, upsert=True)
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/visitors/<int:visitor_id>/ban")
+@admin_required
+def admin_ban_visitor(visitor_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["visitors"].update_one({"id": visitor_id}, {"$set": {"is_banned": 1}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/visitors/<int:visitor_id>/unban")
+@admin_required
+def admin_unban_visitor(visitor_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["visitors"].update_one({"id": visitor_id}, {"$set": {"is_banned": 0}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/testimonials/<int:testimonial_id>/approve")
+@admin_required
+def admin_approve_testimonial(testimonial_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["testimonials"].update_one({"id": testimonial_id}, {"$set": {"status": "approved"}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/testimonials/<int:testimonial_id>/reject")
+@admin_required
+def admin_reject_testimonial(testimonial_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["testimonials"].update_one({"id": testimonial_id}, {"$set": {"status": "rejected"}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/testimonials/<int:testimonial_id>/delete")
+@admin_required
+def admin_delete_testimonial(testimonial_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["testimonials"].delete_one({"id": testimonial_id})
+    return jsonify({"ok": True})
+
+
+@app.get("/admin/api/backup-db")
+@admin_required
+def admin_backup_db():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    import json
+    payload = {}
+    for name in ["app_settings", "categories", "videos", "users", "purchase_requests", "reports", "visitors", "testimonials", "auth_users", "auth_user_devices", "user_access", "presence_sessions"]:
+        payload[name] = list(mdb[name].find({}, {"_id": 0}))
+    out_path = os.path.join(BASE_DIR, "mongo_backup.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return send_file(out_path, as_attachment=True, download_name="mongo_backup.json")
 
 
 @app.get("/admin/api/live-stats")
