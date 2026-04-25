@@ -639,8 +639,13 @@ def admin_live_stats():
     now = datetime.utcnow()
     active_since = (now - timedelta(seconds=60)).isoformat()
     online_since = (now - timedelta(minutes=5)).isoformat()
-    today_start, today_end = iso_day_bounds_utc(0)
-    y_start, y_end = iso_day_bounds_utc(1)
+    today = now.date()
+    today_start_dt = datetime.combine(today, datetime.min.time())
+    today_end_dt = today_start_dt + timedelta(days=1)
+    y_start_dt = today_start_dt - timedelta(days=1)
+    y_end_dt = today_start_dt
+    today_start, today_end = today_start_dt.isoformat(), today_end_dt.isoformat()
+    y_start, y_end = y_start_dt.isoformat(), y_end_dt.isoformat()
     stats = {
         "online_total": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}}),
         "active_last_minute": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": active_since}}),
