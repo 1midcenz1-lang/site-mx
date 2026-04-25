@@ -162,7 +162,7 @@ def generate_access_code(length: int = 16) -> str:
 def get_mongo_client():
     if "mongo_client" in app.extensions:
         return app.extensions["mongo_client"]
-    uri = os.environ.get("MONGO_URI", "mongodb://mg:mani2244@195.177.255.54:27017/")
+    uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/")
     db_name = os.environ.get("MONGO_DB_NAME", "site_mx")
     try:
         pymongo_mod = __import__("pymongo")
