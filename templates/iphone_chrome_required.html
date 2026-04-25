@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}فقط Chrome در iPhone{% endblock %}
+{% block content %}
+<section class="form-card">
+  <h2>ورود فقط با Chrome</h2>
+  <p>برای کاربران iPhone این سایت فقط داخل مرورگر <strong>Chrome</strong> قابل استفاده است.</p>
+  <p>لطفا روی دکمه زیر بزنید تا همین لینک با Chrome باز شود.</p>
+  {% if open_url %}
+  <a class="btn" href="{{ open_url }}">باز کردن در Chrome</a>
+  {% endif %}
+  <a class="btn btn-ghost" href="https://apps.apple.com/app/google-chrome/id535886823" target="_blank" rel="noopener">نصب Chrome از App Store</a>
+  <a class="btn btn-ghost" href="{{ next_url }}">تلاش دوباره</a>
+</section>
+{% endblock %}
