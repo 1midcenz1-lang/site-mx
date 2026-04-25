@@ -1,26 +1,44 @@
 ﻿(function () {
-  function generateUUID() {
-    // اگر crypto موجود بود استفاده کن
-    if (window.crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // fallback ساده (UUID v4-like)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
   const approvedText = document.getElementById("approved-text");
   const listBox = document.getElementById("video-list");
+  const showCodeBtn = document.getElementById("show-code-btn");
+  const myCodeBox = document.getElementById("my-code-box");
   if (!approvedText || !listBox) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId())
     || localStorage.getItem("mx_device_id")
-    || generateUUID();
-  localStorage.setItem("mx_device_id", deviceId);
+    || "";
+  if (!deviceId) {
+    approvedText.classList.add("error");
+    approvedText.textContent = "شناسه دستگاه پیدا نشد. صفحه را دوباره باز کنید.";
+    return;
+  }
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
+  if (showCodeBtn && myCodeBox) {
+    showCodeBtn.addEventListener("click", async () => {
+      myCodeBox.classList.remove("hidden", "error");
+      myCodeBox.textContent = "در حال دریافت کد...";
+      try {
+        const res = await fetch(`/api/auth/my-code?device_id=${encodeURIComponent(deviceId)}`);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          myCodeBox.classList.add("error");
+          if (data && data.login_required) {
+            const next = encodeURIComponent(window.location.pathname + window.location.search);
+            window.location.href = `/login?next=${next}`;
+            return;
+          }
+          myCodeBox.textContent = data.message || "کد پیدا نشد.";
+          return;
+        }
+        myCodeBox.textContent = `کد شما: ${data.access_code}`;
+      } catch (_err) {
+        myCodeBox.classList.add("error");
+        myCodeBox.textContent = "خطای ارتباط با سرور";
+      }
+    });
+  }
 
   function showNotificationGuidePopup() {
     if (!("Notification" in window)) return;
