@@ -392,8 +392,6 @@ def init_db():
             ON download_sessions(updated_at);
         CREATE INDEX IF NOT EXISTS idx_auth_user_devices_user
             ON auth_user_devices(auth_user_id);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_access_code
-            ON auth_users(access_code);
         """
     )
 
@@ -425,6 +423,33 @@ def init_db():
                 continue
             cursor.execute("UPDATE auth_users SET access_code=?, updated_at=? WHERE id=?", (new_code, datetime.utcnow().isoformat(), row["id"]))
             break
+    duplicate_rows = cursor.execute(
+        """
+        SELECT access_code FROM auth_users
+        WHERE access_code IS NOT NULL AND access_code<>''
+        GROUP BY access_code
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+    for dup in duplicate_rows:
+        rows = cursor.execute(
+            "SELECT id FROM auth_users WHERE access_code=? ORDER BY id ASC",
+            (dup["access_code"],),
+        ).fetchall()
+        for item in rows[1:]:
+            while True:
+                new_code = generate_access_code(16)
+                exists = cursor.execute("SELECT id FROM auth_users WHERE access_code=?", (new_code,)).fetchone()
+                if exists:
+                    continue
+                cursor.execute("UPDATE auth_users SET access_code=?, updated_at=? WHERE id=?", (new_code, datetime.utcnow().isoformat(), item["id"]))
+                break
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_access_code
+        ON auth_users(access_code)
+        """
+    )
 
     report_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(reports)").fetchall()]
     if "reporter_name" not in report_cols:
