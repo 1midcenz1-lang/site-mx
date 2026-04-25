@@ -44,7 +44,7 @@
         return;
       } else {
         output.classList.remove("error");
-        output.textContent = `وارد شده‌اید: ${data.username || "-"}`;
+        output.textContent = `وارد شده‌اید | کد: ${data.access_code || "-"}`;
       }
       setBuyEnabled(isLoggedIn);
     } catch (_err) {

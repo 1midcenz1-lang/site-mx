@@ -63,7 +63,7 @@
 <section class="table-wrap scroll-box">
   <h2>جستجو</h2>
   <form method="GET" class="form-card">
-    <label>جستجو (username/device/browser/os)</label>
+    <label>جستجو (code/device/browser/os)</label>
     <input name="q" value="{{ visitors_search }}" />
     <label>حد نمایش</label>
     <input type="number" name="limit" value="{{ visitors_limit }}" min="50" max="1000" />
@@ -85,12 +85,12 @@
 <section class="table-wrap scroll-box">
   <h2>اکانت‌ها</h2>
   <table>
-    <thead><tr><th>ID</th><th>username</th><th>تعداد دستگاه</th><th>آخرین فعالیت دستگاه</th><th>آخرین آپدیت</th></tr></thead>
+    <thead><tr><th>ID</th><th>کد دسترسی</th><th>تعداد دستگاه</th><th>آخرین فعالیت دستگاه</th><th>آخرین آپدیت</th></tr></thead>
     <tbody>
       {% for au in auth_users %}
       <tr>
         <td>{{ au.id }}</td>
-        <td>{{ au.username }}</td>
+        <td>{{ au.access_code }}</td>
         <td>{{ au.device_count }}</td>
         <td>{{ au.last_device_seen or '-' }}</td>
         <td>{{ au.updated_at }}</td>

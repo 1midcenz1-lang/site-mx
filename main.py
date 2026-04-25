@@ -1,6 +1,8 @@
 ﻿import os
 import re
+import secrets
 import sqlite3
+import string
 import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -21,7 +23,6 @@ from flask import (
     url_for,
 )
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -160,6 +161,38 @@ def setting_int(key: str, default_value: int) -> int:
 
 def get_utc_adjust_hours() -> int:
     return setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS)
+
+
+def generate_access_code(length: int = 16) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def get_mongo_client():
+    if "mongo_client" in app.extensions:
+        return app.extensions["mongo_client"]
+    uri = os.environ.get("MONGO_URI", "mongodb://mg:mani2244@195.177.255.54:27017/")
+    db_name = os.environ.get("MONGO_DB_NAME", "site_mx")
+    try:
+        pymongo_mod = __import__("pymongo")
+        client = pymongo_mod.MongoClient(uri, serverSelectionTimeoutMS=1500)
+        app.extensions["mongo_client"] = client
+        app.extensions["mongo_db_name"] = db_name
+        return client
+    except Exception:
+        app.extensions["mongo_client"] = None
+        return None
+
+
+def mongo_upsert(collection_name: str, filter_doc: dict, update_doc: dict):
+    client = get_mongo_client()
+    if not client:
+        return
+    try:
+        db_name = app.extensions.get("mongo_db_name", "site_mx")
+        client[db_name][collection_name].update_one(filter_doc, {"$set": update_doc}, upsert=True)
+    except Exception:
+        return
 
 
 def get_db():
@@ -320,8 +353,8 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS auth_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
+            access_code TEXT NOT NULL UNIQUE,
+            note TEXT,
             is_banned INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -359,6 +392,8 @@ def init_db():
             ON download_sessions(updated_at);
         CREATE INDEX IF NOT EXISTS idx_auth_user_devices_user
             ON auth_user_devices(auth_user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_access_code
+            ON auth_users(access_code);
         """
     )
 
@@ -376,6 +411,21 @@ def init_db():
         cursor.execute("ALTER TABLE visitors ADD COLUMN os_name TEXT")
     if "device_model" not in visitor_cols:
         cursor.execute("ALTER TABLE visitors ADD COLUMN device_model TEXT")
+    auth_user_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(auth_users)").fetchall()]
+    if "access_code" not in auth_user_cols:
+        cursor.execute("ALTER TABLE auth_users ADD COLUMN access_code TEXT")
+    if "note" not in auth_user_cols:
+        cursor.execute("ALTER TABLE auth_users ADD COLUMN note TEXT")
+    null_code_rows = cursor.execute("SELECT id FROM auth_users WHERE access_code IS NULL OR access_code=''").fetchall()
+    for row in null_code_rows:
+        while True:
+            new_code = generate_access_code(16)
+            exists = cursor.execute("SELECT id FROM auth_users WHERE access_code=?", (new_code,)).fetchone()
+            if exists:
+                continue
+            cursor.execute("UPDATE auth_users SET access_code=?, updated_at=? WHERE id=?", (new_code, datetime.utcnow().isoformat(), row["id"]))
+            break
+
     report_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(reports)").fetchall()]
     if "reporter_name" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN reporter_name TEXT")
@@ -505,6 +555,18 @@ def register_visit(device_id: str, db=None):
         updated = True
     if should_commit and updated:
         local_db.commit()
+    mongo_upsert(
+        "visitors",
+        {"device_id": device_id},
+        {
+            "device_id": device_id,
+            "last_seen_at": now_iso(),
+            "user_agent": ua,
+            "browser_name": ua_meta["browser_name"],
+            "os_name": ua_meta["os_name"],
+            "device_model": ua_meta["device_model"],
+        },
+    )
 
 
 def cleanup_live_sessions(db):
@@ -724,33 +786,63 @@ def login_page():
 @app.post("/api/auth/login")
 def api_auth_login():
     payload = request.get_json(silent=True) or {}
-    username = (payload.get("username") or "").strip().lower()
-    password = (payload.get("password") or "").strip()
-    device_id = (payload.get("device_id") or "").strip()
-    if not username or len(username) < 3 or not password or len(password) < 4 or not device_id:
-        return jsonify({"ok": False, "message": "نام کاربری، رمز و شناسه دستگاه الزامی است."}), 400
+    access_code = (payload.get("access_code") or "").strip().upper()
+    device_id = get_device_id_from_request(payload)
+    if not access_code or len(access_code) != 16 or not device_id:
+        return jsonify({"ok": False, "message": "کد ۱۶ کاراکتری و شناسه دستگاه الزامی است."}), 400
 
     db = get_db()
-    user = db.execute("SELECT * FROM auth_users WHERE username=?", (username,)).fetchone()
+    user = db.execute("SELECT * FROM auth_users WHERE access_code=?", (access_code,)).fetchone()
     if not user:
-        db.execute(
-            "INSERT INTO auth_users(username, password_hash, created_at, updated_at) VALUES(?,?,?,?)",
-            (username, generate_password_hash(password), now_iso(), now_iso()),
-        )
-        user = db.execute("SELECT * FROM auth_users WHERE username=?", (username,)).fetchone()
-    elif not check_password_hash(user["password_hash"], password):
-        return jsonify({"ok": False, "message": "نام کاربری یا رمز عبور اشتباه است."}), 401
+        return jsonify({"ok": False, "message": "کد وارد شده اشتباه است."}), 401
 
     ok, msg = bind_device_to_auth_user(user["id"], device_id, db)
     if not ok:
         return jsonify({"ok": False, "message": msg}), 403
 
     db.execute("UPDATE auth_users SET updated_at=? WHERE id=?", (now_iso(), user["id"]))
-    db.execute("UPDATE visitors SET username=?, last_seen_at=? WHERE device_id=?", (user["username"], now_iso(), device_id))
+    db.execute("UPDATE visitors SET username=?, last_seen_at=? WHERE device_id=?", (f"code:{user['access_code'][:4]}", now_iso(), device_id))
     db.commit()
     session["auth_user_id"] = user["id"]
-    session["auth_username"] = user["username"]
-    return jsonify({"ok": True, "username": user["username"]})
+    return jsonify({"ok": True, "access_code": user["access_code"]})
+
+
+@app.post("/api/auth/create-code")
+def api_auth_create_code():
+    payload = request.get_json(silent=True) or {}
+    device_id = get_device_id_from_request(payload)
+    if not device_id:
+        return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
+
+    db = get_db()
+    for _ in range(10):
+        access_code = generate_access_code(16)
+        exists = db.execute("SELECT id FROM auth_users WHERE access_code=?", (access_code,)).fetchone()
+        if exists:
+            continue
+        db.execute(
+            "INSERT INTO auth_users(access_code, note, created_at, updated_at) VALUES(?,?,?,?)",
+            (access_code, "first_purchase", now_iso(), now_iso()),
+        )
+        user = db.execute("SELECT * FROM auth_users WHERE access_code=?", (access_code,)).fetchone()
+        ok, msg = bind_device_to_auth_user(user["id"], device_id, db)
+        if not ok:
+            return jsonify({"ok": False, "message": msg}), 403
+        db.commit()
+        session["auth_user_id"] = user["id"]
+        mongo_upsert(
+            "auth_users",
+            {"access_code": access_code},
+            {"access_code": access_code, "updated_at": now_iso(), "created_at": user["created_at"]},
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "access_code": access_code,
+                "message": "کد شما ساخته شد. حتما آن را نگه دارید؛ در غیر این صورت دسترسی شما قطع می‌شود.",
+            }
+        )
+    return jsonify({"ok": False, "message": "فعلا امکان ساخت کد نیست. دوباره تلاش کنید."}), 500
 
 
 @app.get("/api/auth/status")
@@ -768,16 +860,25 @@ def api_auth_status():
         {
             "ok": True,
             "logged_in": bool(has_device),
-            "username": user["username"],
+            "access_code": user["access_code"],
             "max_devices": setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER),
         }
     )
 
 
+@app.get("/api/auth/my-code")
+def api_auth_my_code():
+    db = get_db()
+    auth_result, err_resp, err_status = require_auth_for_api(db)
+    if err_resp is not None:
+        return err_resp, err_status
+    auth_user, _device_id = auth_result
+    return jsonify({"ok": True, "access_code": auth_user["access_code"]})
+
+
 @app.post("/api/auth/logout")
 def api_auth_logout():
     session.pop("auth_user_id", None)
-    session.pop("auth_username", None)
     return jsonify({"ok": True})
 
 
@@ -841,7 +942,7 @@ def buy_page(slug):
     category = db.execute("SELECT * FROM categories WHERE slug=?", (slug,)).fetchone()
     if not category:
         abort(404)
-    return render_template("buy.html", category=category, auth_username=session.get("auth_username"))
+    return render_template("buy.html", category=category)
 
 
 @app.post("/api/submit-request")
@@ -930,6 +1031,17 @@ def submit_request():
         (now_iso(), device_id),
     )
     db.commit()
+    mongo_upsert(
+        "purchase_requests",
+        {"id": int(db.execute("SELECT last_insert_rowid() AS i").fetchone()["i"])},
+        {
+            "device_id": device_id,
+            "user_id": user["id"],
+            "category_id": category["id"],
+            "status": "pending",
+            "created_at": now_iso(),
+        },
+    )
 
     return jsonify(
         {
@@ -1243,7 +1355,7 @@ def admin_dashboard():
         SELECT au.*, COUNT(aud.id) AS device_count, MAX(aud.last_seen_at) AS last_device_seen
         FROM auth_users au
         LEFT JOIN auth_user_devices aud ON aud.auth_user_id = au.id
-        WHERE (? = '' OR au.username LIKE ?)
+        WHERE (? = '' OR au.access_code LIKE ?)
         GROUP BY au.id
         ORDER BY au.updated_at DESC
         LIMIT ?
@@ -1459,6 +1571,17 @@ def submit_report():
         (now_iso(), device_id),
     )
     db.commit()
+    mongo_upsert(
+        "reports",
+        {"id": int(db.execute("SELECT last_insert_rowid() AS i").fetchone()["i"])},
+        {
+            "device_id": device_id,
+            "user_id": user_id,
+            "report_type": report_type,
+            "report_text": report_text,
+            "created_at": now_iso(),
+        },
+    )
     return jsonify({"ok": True, "message": "ریپورت ثبت شد و برای ادمین ارسال شد."})
 
 
@@ -1950,6 +2073,11 @@ def admin_update_settings():
             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
             """,
             (key, value, now_iso()),
+        )
+        mongo_upsert(
+            "app_settings",
+            {"key": key},
+            {"key": key, "value": value, "updated_at": now_iso()},
         )
     db.commit()
     return jsonify({"ok": True, "message": "تنظیمات ذخیره شد."})
