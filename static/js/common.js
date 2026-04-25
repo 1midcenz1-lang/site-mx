@@ -1,24 +1,58 @@
 ﻿(function () {
-  function generateUUID() {
-    // اگر crypto موجود بود استفاده کن
-    if (window.crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // fallback ساده (UUID v4-like)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
+  function isIPhone() {
+    const ua = navigator.userAgent || "";
+    const isiPhoneUA = /iPhone|iPod/i.test(ua);
+    const isiPadAsMac = navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1;
+    return isiPhoneUA || isiPadAsMac;
   }
+
+  function isChromeOnIOS() {
+    return /CriOS/i.test(navigator.userAgent || "");
+  }
+
+  function hash32(input) {
+    let h = 2166136261;
+    for (let i = 0; i < input.length; i += 1) {
+      h ^= input.charCodeAt(i);
+      h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function buildDeviceFingerprint() {
+    const parts = [
+      navigator.platform || "na",
+      String(navigator.maxTouchPoints || 0),
+      String(navigator.hardwareConcurrency || 0),
+      String(navigator.deviceMemory || 0),
+      String(screen.width || 0),
+      String(screen.height || 0),
+      String(screen.colorDepth || 0),
+      String(window.devicePixelRatio || 1),
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "na",
+      navigator.language || "na",
+      navigator.vendor || "na",
+    ];
+    return `mx-${hash32(parts.join("|"))}`;
+  }
+
+  function enforceIPhoneChrome() {
+    if (!isIPhone() || isChromeOnIOS()) return;
+    if (window.location.pathname === "/iphone-chrome-required") return;
+    const current = window.location.href;
+    const encoded = encodeURIComponent(current);
+    const deepLink = `googlechrome://navigate?url=${encoded}`;
+    const fallback = `/iphone-chrome-required?next=${encoded}`;
+    window.location.replace(fallback + `&open=${encodeURIComponent(deepLink)}`);
+  }
+
   function initDevice() {
     let deviceId = localStorage.getItem("mx_device_id");
     if (!deviceId) {
-      deviceId = generateUUID();
+      deviceId = buildDeviceFingerprint();
       localStorage.setItem("mx_device_id", deviceId);
     }
-    return Promise.resolve({ deviceId });
+    return { deviceId };
   }
 
   async function registerVisit(deviceId) {
@@ -47,7 +81,8 @@
   }
 
   async function setup() {
-    const onboard = await initDevice();
+    enforceIPhoneChrome();
+    const onboard = initDevice();
     const deviceId = onboard.deviceId;
 
     window.MX = window.MX || {};

@@ -3,8 +3,21 @@
 {% block content %}
 <section class="hero hero-glass">
   <h1>دریافت اشتراک {{ category.title }}</h1>
-  <p>فقط عکس فیش را ارسال کن؛ سیستم با شناسه دستگاهت خرید را ثبت می‌کند.</p>
+  <p>قبل از خرید باید وارد حساب کاربری شوید. هر حساب حداکثر روی تعداد محدودی دستگاه فعال می‌شود.</p>
   <pre class="payment-text">{{ category.payment_text }}</pre>
+</section>
+
+<section class="form-card">
+  <h3>ورود / ثبت نام</h3>
+  <p class="muted">اگر قبلاً اکانت نداشتید، با اولین ورود ساخته می‌شود.</p>
+  <form id="auth-form">
+    <label>نام کاربری</label>
+    <input name="username" id="auth-username" value="{{ auth_username or '' }}" required minlength="3" />
+    <label>رمز عبور</label>
+    <input type="password" name="password" id="auth-password" required minlength="4" />
+    <button class="btn" type="submit">ورود / ثبت نام</button>
+  </form>
+  <div id="auth-result" class="result-box"></div>
 </section>
 
 <form id="buy-form" class="form-card" enctype="multipart/form-data">

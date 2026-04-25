@@ -1,25 +1,16 @@
 ﻿(function () {
-  function generateUUID() {
-    // اگر crypto موجود بود استفاده کن
-    if (window.crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // fallback ساده (UUID v4-like)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
   const approvedText = document.getElementById("approved-text");
   const listBox = document.getElementById("video-list");
   if (!approvedText || !listBox) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId())
     || localStorage.getItem("mx_device_id")
-    || generateUUID();
-  localStorage.setItem("mx_device_id", deviceId);
+    || "";
+  if (!deviceId) {
+    approvedText.classList.add("error");
+    approvedText.textContent = "شناسه دستگاه پیدا نشد. صفحه را دوباره باز کنید.";
+    return;
+  }
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 
   function showNotificationGuidePopup() {
