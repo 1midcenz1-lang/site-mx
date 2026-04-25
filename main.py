@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 import secrets
 import string
@@ -52,11 +52,11 @@ def now_iso() -> str:
 def get_mongo_client():
     if "mongo_client" in app.extensions:
         return app.extensions["mongo_client"]
-    uri = os.environ.get("MONGO_URI", "mongodb://mg:mani2244@195.177.255.54:27017/")
+    uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/")
     db_name = os.environ.get("MONGO_DB_NAME", "site_mx")
     try:
         pymongo_mod = __import__("pymongo")
-        client = pymongo_mod.MongoClient(uri, serverSelectionTimeoutMS=1500)
+        client = pymongo_mod.MongoClient(uri, serverSelectionTimeoutMS=5000)
         app.extensions["mongo_client"] = client
         app.extensions["mongo_db_name"] = db_name
         return client
@@ -117,7 +117,7 @@ def seed_mongo():
         "site_domain_move_target": DEFAULT_SITE_DOMAIN_MOVE_TARGET,
         "utc_adjust_hours": str(DEFAULT_UTC_ADJUST_HOURS),
         "max_devices_per_user": str(DEFAULT_MAX_DEVICES_PER_USER),
-        "maintenance_fallback_url": "http://mxdomain.top:5000",
+        "maintenance_fallback_url": str(DEFAULT_SITE_DOMAIN_MOVE_TARGET),
     }
     for k, v in defaults.items():
         mdb["app_settings"].update_one({"key": k}, {"$setOnInsert": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)
