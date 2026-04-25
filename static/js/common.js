@@ -1,23 +1,81 @@
 ﻿(function () {
-  function generateUUID() {
-    // اگر crypto موجود بود استفاده کن
-    if (window.crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
+  function hashFNV1a(input) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= input.charCodeAt(i);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
     }
-
-    // fallback ساده (UUID v4-like)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
+    return (hash >>> 0).toString(16).padStart(8, "0");
   }
-  function initDevice() {
-    let deviceId = localStorage.getItem("mx_device_id");
-    if (!deviceId) {
-      deviceId = generateUUID();
-      localStorage.setItem("mx_device_id", deviceId);
+
+  function normalizeUserAgentForFingerprint(ua) {
+    return String(ua || "")
+      .replace(/(crios|fxios|edgios|opios|duckduckgo|yaapp_ios|safari)\/[\d._]+/gi, "$1")
+      .replace(/version\/[\d._]+/gi, "version")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  }
+
+  function generateDeterministicDeviceId() {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown";
+    const nav = window.navigator || {};
+    const screenData = window.screen || {};
+    const fingerprintRaw = [
+      normalizeUserAgentForFingerprint(nav.userAgent),
+      nav.platform || "",
+      nav.language || "",
+      nav.languages ? nav.languages.join(",") : "",
+      tz,
+      screenData.width || "",
+      screenData.height || "",
+      screenData.colorDepth || "",
+      nav.hardwareConcurrency || "",
+      nav.maxTouchPoints || "",
+    ].join("|");
+    const fingerprintHash = hashFNV1a(fingerprintRaw);
+    return `mx-${fingerprintHash}`;
+  }
+
+  function isIPhone() {
+    const ua = navigator.userAgent || "";
+    return /iPhone/i.test(ua);
+  }
+
+  function isChromeOnIOS() {
+    const ua = navigator.userAgent || "";
+    return /CriOS/i.test(ua);
+  }
+
+  function showChromeRequiredGate() {
+    const gate = document.createElement("div");
+    gate.className = "chrome-required-gate";
+    gate.innerHTML = `
+      <div class="chrome-required-card">
+        <h3>فقط با Chrome آیفون وارد شوید</h3>
+        <p>برای ادامه، این صفحه باید با Google Chrome باز شود.</p>
+        <button type="button" class="btn" id="open-in-chrome-btn">باز کردن در Chrome</button>
+        <p class="hint">اگر خودکار باز نشد، لینک را کپی کنید و داخل Chrome باز کنید.</p>
+      </div>
+    `;
+    document.body.appendChild(gate);
+
+    const chromeUrl = `googlechromes://${window.location.href.replace(/^https?:\/\//i, "")}`;
+    const openBtn = document.getElementById("open-in-chrome-btn");
+    if (openBtn) {
+      openBtn.addEventListener("click", () => {
+        window.location.href = chromeUrl;
+      });
     }
+    setTimeout(() => {
+      window.location.href = chromeUrl;
+    }, 450);
+  }
+
+  function initDevice() {
+    const stableId = generateDeterministicDeviceId();
+    localStorage.setItem("mx_device_id", stableId);
+    let deviceId = stableId;
     return Promise.resolve({ deviceId });
   }
 
@@ -47,6 +105,11 @@
   }
 
   async function setup() {
+    if (isIPhone() && !isChromeOnIOS()) {
+      showChromeRequiredGate();
+      return;
+    }
+
     const onboard = await initDevice();
     const deviceId = onboard.deviceId;
 
