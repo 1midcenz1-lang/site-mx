@@ -59,8 +59,8 @@
     const cards = document.querySelectorAll(".category-card");
     const deviceId = (window.MX && window.MX.ensureDeviceId && window.MX.ensureDeviceId())
       || localStorage.getItem("mx_device_id")
-      || crypto.randomUUID();
-    localStorage.setItem("mx_device_id", deviceId);
+      || "";
+    if (!deviceId) return;
     const liked = new Set();
 
     function renderCard(card, isLiked, countValue) {
