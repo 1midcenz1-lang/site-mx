@@ -13,7 +13,6 @@ from flask import (
     abort,
     flash,
     g,
-    has_app_context,
     jsonify,
     redirect,
     render_template,
@@ -124,25 +123,17 @@ def _serializer() -> URLSafeTimedSerializer:
 
 
 def _read_setting_from_db(key: str):
-    if not os.path.exists(DB_PATH):
+    mdb = mongo_db()
+    if mdb is None:
         return None
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     try:
-        row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
-        return row["value"] if row else None
-    except sqlite3.Error:
+        row = mdb["app_settings"].find_one({"key": key})
+        return row.get("value") if row else None
+    except Exception:
         return None
-    finally:
-        conn.close()
 
 
 def get_setting(key: str, default_value: str) -> str:
-    if has_app_context():
-        db = g.get("db")
-        if db is not None:
-            row = db.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
-            return row["value"] if row else default_value
     db_value = _read_setting_from_db(key)
     return db_value if db_value is not None else default_value
 
@@ -626,11 +617,7 @@ def current_auth_user(db=None):
         if doc:
             doc["id"] = str(doc.get("_id"))
             return doc
-    auth_user_id = session.get("auth_user_id")
-    if not auth_user_id:
-        return None
-    local_db = db or get_db()
-    return local_db.execute("SELECT * FROM auth_users WHERE id=?", (auth_user_id,)).fetchone()
+    return None
 
 
 def get_device_id_from_request(payload: dict | None = None) -> str:
@@ -653,69 +640,36 @@ def require_auth_for_api(db, payload: dict | None = None):
     if not device_id:
         return None, jsonify({"ok": False, "message": "شناسه دستگاه پیدا نشد.", "login_required": True}), 401
     mdb = mongo_db()
-    if mdb is not None and auth_user.get("access_code"):
-        bind = mdb["auth_user_devices"].find_one({"access_code": auth_user["access_code"], "device_id": device_id})
-        if not bind:
-            return None, jsonify({"ok": False, "message": "دستگاه شما برای این اکانت مجاز نیست.", "login_required": True}), 403
-    else:
-        bind = db.execute(
-            "SELECT id FROM auth_user_devices WHERE auth_user_id=? AND device_id=?",
-            (auth_user["id"], device_id),
-        ).fetchone()
-        if not bind:
-            return None, jsonify({"ok": False, "message": "دستگاه شما برای این اکانت مجاز نیست.", "login_required": True}), 403
+    if mdb is None or not auth_user.get("access_code"):
+        return None, jsonify({"ok": False, "message": "MongoDB در دسترس نیست.", "login_required": True}), 503
+    bind = mdb["auth_user_devices"].find_one({"access_code": auth_user["access_code"], "device_id": device_id})
+    if not bind:
+        return None, jsonify({"ok": False, "message": "دستگاه شما برای این اکانت مجاز نیست.", "login_required": True}), 403
     return (auth_user, device_id), None, None
 
 
 def bind_device_to_auth_user(auth_user_id: int, device_id: str, db):
     mdb = mongo_db()
-    if mdb is not None and isinstance(auth_user_id, str):
-        max_devices = setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)
-        existing = mdb["auth_user_devices"].find_one({"access_code": auth_user_id, "device_id": device_id})
-        if existing:
-            mdb["auth_user_devices"].update_one(
-                {"_id": existing["_id"]},
-                {"$set": {"last_seen_at": now_iso()}},
-            )
-            return True, ""
-        count = mdb["auth_user_devices"].count_documents({"access_code": auth_user_id})
-        if count >= max_devices:
-            return False, f"این اکانت فقط روی {max_devices} دستگاه مجاز است."
-        mdb["auth_user_devices"].insert_one(
-            {
-                "access_code": auth_user_id,
-                "device_id": device_id,
-                "first_seen_at": now_iso(),
-                "last_seen_at": now_iso(),
-            }
-        )
-        return True, ""
-
+    if mdb is None or not isinstance(auth_user_id, str):
+        return False, "MongoDB در دسترس نیست."
     max_devices = setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)
-    existing = db.execute(
-        "SELECT id FROM auth_user_devices WHERE auth_user_id=? AND device_id=?",
-        (auth_user_id, device_id),
-    ).fetchone()
+    existing = mdb["auth_user_devices"].find_one({"access_code": auth_user_id, "device_id": device_id})
     if existing:
-        db.execute(
-            "UPDATE auth_user_devices SET last_seen_at=? WHERE id=?",
-            (now_iso(), existing["id"]),
+        mdb["auth_user_devices"].update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"last_seen_at": now_iso()}},
         )
         return True, ""
-
-    count = db.execute(
-        "SELECT COUNT(*) AS c FROM auth_user_devices WHERE auth_user_id=?",
-        (auth_user_id,),
-    ).fetchone()["c"]
+    count = mdb["auth_user_devices"].count_documents({"access_code": auth_user_id})
     if count >= max_devices:
         return False, f"این اکانت فقط روی {max_devices} دستگاه مجاز است."
-
-    db.execute(
-        """
-        INSERT INTO auth_user_devices(auth_user_id, device_id, first_seen_at, last_seen_at)
-        VALUES(?,?,?,?)
-        """,
-        (auth_user_id, device_id, now_iso(), now_iso()),
+    mdb["auth_user_devices"].insert_one(
+        {
+            "access_code": auth_user_id,
+            "device_id": device_id,
+            "first_seen_at": now_iso(),
+            "last_seen_at": now_iso(),
+        }
     )
     return True, ""
 
@@ -860,29 +814,18 @@ def api_auth_login():
         return jsonify({"ok": False, "message": "کد ۱۶ کاراکتری و شناسه دستگاه الزامی است."}), 400
 
     mdb = mongo_db()
-    if mdb is not None:
-        user = mdb["auth_users"].find_one({"access_code": access_code})
-        if not user:
-            return jsonify({"ok": False, "message": "کد وارد شده اشتباه است."}), 401
-        ok, msg = bind_device_to_auth_user(access_code, device_id, None)
-        if not ok:
-            return jsonify({"ok": False, "message": msg}), 403
-        mdb["auth_users"].update_one({"access_code": access_code}, {"$set": {"updated_at": now_iso()}})
-        session["auth_access_code"] = access_code
-        session.pop("auth_user_id", None)
-        return jsonify({"ok": True, "access_code": access_code})
-
-    db = get_db()
-    user = db.execute("SELECT * FROM auth_users WHERE access_code=?", (access_code,)).fetchone()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    user = mdb["auth_users"].find_one({"access_code": access_code})
     if not user:
         return jsonify({"ok": False, "message": "کد وارد شده اشتباه است."}), 401
-    ok, msg = bind_device_to_auth_user(user["id"], device_id, db)
+    ok, msg = bind_device_to_auth_user(access_code, device_id, None)
     if not ok:
         return jsonify({"ok": False, "message": msg}), 403
-    db.execute("UPDATE auth_users SET updated_at=? WHERE id=?", (now_iso(), user["id"]))
-    db.commit()
-    session["auth_user_id"] = user["id"]
-    return jsonify({"ok": True, "access_code": user["access_code"]})
+    mdb["auth_users"].update_one({"access_code": access_code}, {"$set": {"updated_at": now_iso()}})
+    session["auth_access_code"] = access_code
+    session.pop("auth_user_id", None)
+    return jsonify({"ok": True, "access_code": access_code})
 
 
 @app.post("/api/auth/create-code")
@@ -893,57 +836,26 @@ def api_auth_create_code():
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
 
     mdb = mongo_db()
-    if mdb is not None:
-        for _ in range(10):
-            access_code = generate_access_code(16)
-            exists = mdb["auth_users"].find_one({"access_code": access_code})
-            if exists:
-                continue
-            mdb["auth_users"].insert_one(
-                {
-                    "access_code": access_code,
-                    "note": "first_purchase",
-                    "created_at": now_iso(),
-                    "updated_at": now_iso(),
-                }
-            )
-            ok, msg = bind_device_to_auth_user(access_code, device_id, None)
-            if not ok:
-                return jsonify({"ok": False, "message": msg}), 403
-            session["auth_access_code"] = access_code
-            session.pop("auth_user_id", None)
-            return jsonify(
-                {
-                    "ok": True,
-                    "access_code": access_code,
-                    "message": "کد شما ساخته شد. حتما آن را نگه دارید؛ در غیر این صورت دسترسی شما قطع می‌شود.",
-                }
-            )
-        return jsonify({"ok": False, "message": "فعلا امکان ساخت کد نیست. دوباره تلاش کنید."}), 500
-
-    db = get_db()
-    auth_cols = [r["name"] for r in db.execute("PRAGMA table_info(auth_users)").fetchall()]
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
     for _ in range(10):
         access_code = generate_access_code(16)
-        exists = db.execute("SELECT id FROM auth_users WHERE access_code=?", (access_code,)).fetchone()
+        exists = mdb["auth_users"].find_one({"access_code": access_code})
         if exists:
             continue
-        if "username" in auth_cols and "password_hash" in auth_cols:
-            db.execute(
-                "INSERT INTO auth_users(access_code, note, created_at, updated_at, username, password_hash) VALUES(?,?,?,?,?,?)",
-                (access_code, "first_purchase", now_iso(), now_iso(), f"code_{access_code[:8]}", "legacy"),
-            )
-        else:
-            db.execute(
-                "INSERT INTO auth_users(access_code, note, created_at, updated_at) VALUES(?,?,?,?)",
-                (access_code, "first_purchase", now_iso(), now_iso()),
-            )
-        user = db.execute("SELECT * FROM auth_users WHERE access_code=?", (access_code,)).fetchone()
-        ok, msg = bind_device_to_auth_user(user["id"], device_id, db)
+        mdb["auth_users"].insert_one(
+            {
+                "access_code": access_code,
+                "note": "first_purchase",
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            }
+        )
+        ok, msg = bind_device_to_auth_user(access_code, device_id, None)
         if not ok:
             return jsonify({"ok": False, "message": msg}), 403
-        db.commit()
-        session["auth_user_id"] = user["id"]
+        session["auth_access_code"] = access_code
+        session.pop("auth_user_id", None)
         return jsonify(
             {
                 "ok": True,
@@ -957,18 +869,13 @@ def api_auth_create_code():
 @app.get("/api/auth/status")
 def api_auth_status():
     device_id = get_device_id_from_request()
-    db = get_db()
-    user = current_auth_user(db=db)
+    user = current_auth_user(db=None)
     if not user:
         return jsonify({"ok": True, "logged_in": False})
     mdb = mongo_db()
-    if mdb is not None and user.get("access_code"):
-        has_device = mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": device_id})
-    else:
-        has_device = db.execute(
-            "SELECT id FROM auth_user_devices WHERE auth_user_id=? AND device_id=?",
-            (user["id"], device_id),
-        ).fetchone()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    has_device = mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": device_id})
     return jsonify(
         {
             "ok": True,
@@ -981,8 +888,7 @@ def api_auth_status():
 
 @app.get("/api/auth/my-code")
 def api_auth_my_code():
-    db = get_db()
-    auth_result, err_resp, err_status = require_auth_for_api(db)
+    auth_result, err_resp, err_status = require_auth_for_api(None)
     if err_resp is not None:
         return err_resp, err_status
     auth_user, _device_id = auth_result
@@ -2157,7 +2063,9 @@ def admin_reply_report(report_id):
 @app.post("/admin/api/settings")
 @admin_required
 def admin_update_settings():
-    db = get_db()
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
     site_update_mode = "1" if request.form.get("site_update_mode") == "1" else "0"
     site_domain_move_mode = "1" if request.form.get("site_domain_move_mode") == "1" else "0"
     site_domain_move_target = (request.form.get("site_domain_move_target") or "").strip() or DEFAULT_SITE_DOMAIN_MOVE_TARGET
@@ -2180,20 +2088,11 @@ def admin_update_settings():
         "maintenance_fallback_url": maintenance_fallback_url,
     }
     for key, value in updates.items():
-        db.execute(
-            """
-            INSERT INTO app_settings(key, value, updated_at)
-            VALUES(?,?,?)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
-            """,
-            (key, value, now_iso()),
-        )
-        mongo_upsert(
-            "app_settings",
+        mdb["app_settings"].update_one(
             {"key": key},
-            {"key": key, "value": value, "updated_at": now_iso()},
+            {"$set": {"key": key, "value": value, "updated_at": now_iso()}},
+            upsert=True,
         )
-    db.commit()
     return jsonify({"ok": True, "message": "تنظیمات ذخیره شد."})
 
 
