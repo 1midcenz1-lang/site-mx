@@ -458,6 +458,21 @@ def submit_report():
     return jsonify({"ok": True, "message": "ریپورت ثبت شد"})
 
 
+@app.post("/api/testimonials")
+def submit_testimonial():
+    payload = request.form or {}
+    text = (payload.get("testimonial_text") or "").strip()
+    name = (payload.get("testimonial_name") or "").strip() or "کاربر"
+    did = (payload.get("device_id") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "message": "متن نظر خالی است."}), 400
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["testimonials"].insert_one({"id": mongo_next_id("testimonials"), "author_name": name, "testimonial_text": text, "device_id": did or None, "status": "pending", "created_at": now_iso()})
+    return jsonify({"ok": True, "message": "نظر شما ثبت شد و بعد از تایید نمایش داده می‌شود."})
+
+
 @app.get("/api/my-report-replies")
 def my_replies():
     did = request.args.get("device_id", "").strip()
@@ -649,14 +664,37 @@ def admin_dashboard():
                 granted.append(c["title"])
         requests_rows.append({**r, "device_id": user.get("device_id", "-"), "requested_category": req_cat.get("title", "-"), "category_titles": ", ".join(granted) if granted else "-", "created_at_fa": r.get("created_at", "-")})
 
-    reports = list(mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(300))
-    testimonials = list(mdb["testimonials"].find({}, {"_id": 0}).sort("id", -1).limit(200))
+    reports = []
+    for rp in mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(300):
+        user_id = rp.get("user_id")
+        category_titles = []
+        if user_id:
+            for ua in mdb["user_access"].find({"user_id": user_id}, {"_id": 0, "category_id": 1}):
+                c = cat_by_id.get(ua.get("category_id"))
+                if c:
+                    category_titles.append(c.get("title"))
+        rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
+        rp["created_at_fa"] = rp.get("created_at", "-")
+        reports.append(rp)
+
+    testimonials = []
+    for t in mdb["testimonials"].find({}, {"_id": 0}).sort("id", -1).limit(200):
+        testimonials.append({
+            **t,
+            "display_name": t.get("display_name") or t.get("author_name") or "کاربر",
+            "content": t.get("content") or t.get("testimonial_text") or "",
+            "category_titles": t.get("category_titles") or "-",
+        })
 
     limit = max(50, min(1000, int(request.args.get("limit", "300") or 300)))
     q = (request.args.get("q") or "").strip()
     vf = {}
     if q:
-        vf = {"$or": [{"device_id": {"$regex": q, "$options": "i"}}, {"browser_name": {"$regex": q, "$options": "i"}}, {"os_name": {"$regex": q, "$options": "i"}}, {"device_model": {"$regex": q, "$options": "i"}}]}
+        code_devices = [x.get("device_id") for x in mdb["auth_user_devices"].find({"access_code": {"$regex": q, "$options": "i"}}, {"_id": 0, "device_id": 1}) if x.get("device_id")]
+        ors = [{"device_id": {"$regex": q, "$options": "i"}}, {"username": {"$regex": q, "$options": "i"}}, {"browser_name": {"$regex": q, "$options": "i"}}, {"os_name": {"$regex": q, "$options": "i"}}, {"device_model": {"$regex": q, "$options": "i"}}]
+        if code_devices:
+            ors.append({"device_id": {"$in": code_devices}})
+        vf = {"$or": ors}
     visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(limit))
 
     auth_users = []
@@ -781,7 +819,7 @@ def admin_approve_request(rid):
         category_ids = [int(req["requested_category_id"])]
     for cid in category_ids:
         mdb["user_access"].update_one({"user_id": req["user_id"], "category_id": cid}, {"$set": {"granted_at": now_iso()}}, upsert=True)
-    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "approved", "reviewed_at": now_iso(), "admin_note": None}})
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "approved", "reviewed_at": now_iso(), "admin_note": None, "granted_category_ids": category_ids}})
     return jsonify({"ok": True})
 
 
@@ -804,7 +842,14 @@ def admin_reset_pending(rid):
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None}})
+    req = mdb["purchase_requests"].find_one({"id": rid})
+    if req and req.get("user_id"):
+        granted_ids = [int(x) for x in (req.get("granted_category_ids") or []) if str(x).isdigit()]
+        if not granted_ids and req.get("requested_category_id"):
+            granted_ids = [int(req["requested_category_id"])]
+        for cid in granted_ids:
+            mdb["user_access"].delete_many({"user_id": req["user_id"], "category_id": cid})
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None, "granted_category_ids": []}})
     return jsonify({"ok": True})
 
 
@@ -814,7 +859,7 @@ def admin_reply_report(rid):
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    reply = (request.form.get("reply") or "").strip()
+    reply = (request.form.get("reply") or request.form.get("reply_text") or "").strip()
     if not reply:
         return jsonify({"ok": False, "message": "پاسخ خالی است"}), 400
     mdb["reports"].update_one({"id": rid}, {"$set": {"admin_reply": reply, "replied_at": now_iso(), "user_seen_at": None}})
