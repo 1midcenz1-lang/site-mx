@@ -116,6 +116,34 @@
     });
   });
 
+  document.querySelectorAll(".approve-testimonial-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.testimonialId;
+      const res = await fetch(`/admin/api/testimonials/${id}/approve`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در تایید نظر");
+        return;
+      }
+      alert("نظر تایید شد");
+      window.location.reload();
+    });
+  });
+
+  document.querySelectorAll(".reject-testimonial-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.testimonialId;
+      const res = await fetch(`/admin/api/testimonials/${id}/reject`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در رد نظر");
+        return;
+      }
+      alert("نظر رد شد");
+      window.location.reload();
+    });
+  });
+
   if (videoForm) {
     videoForm.addEventListener("submit", async (e) => {
       e.preventDefault();

@@ -64,12 +64,15 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-now")
 app.config["ADMIN_USER"] = os.environ.get("ADMIN_USER", "admin")
 app.config["ADMIN_PASS"] = os.environ.get("ADMIN_PASS", "mx9091")
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 1GB
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 10GB
 
 
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 ONLINE_SECONDS = 120
 DOWNLOAD_ACTIVE_SECONDS = 180
+SITE_UPDATE_MODE = False
+SITE_DOMAIN_MOVE_MODE = False
+SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
 
 
 def tehran_now_iso() -> str:
@@ -261,6 +264,9 @@ def init_db():
             user_id INTEGER,
             display_name TEXT NOT NULL,
             content TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            admin_note TEXT,
+            reviewed_at TEXT,
             is_seed INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -300,6 +306,13 @@ def init_db():
         cursor.execute("ALTER TABLE reports ADD COLUMN replied_at TEXT")
     if "user_seen_at" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN user_seen_at TEXT")
+    testimonial_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(testimonials)").fetchall()]
+    if "status" not in testimonial_cols:
+        cursor.execute("ALTER TABLE testimonials ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+    if "admin_note" not in testimonial_cols:
+        cursor.execute("ALTER TABLE testimonials ADD COLUMN admin_note TEXT")
+    if "reviewed_at" not in testimonial_cols:
+        cursor.execute("ALTER TABLE testimonials ADD COLUMN reviewed_at TEXT")
 
 
     db.commit()
@@ -367,6 +380,44 @@ def admin_required(func):
     return wrapper
 
 
+@app.before_request
+def site_global_modes():
+    endpoint = request.endpoint or ""
+    path = request.path or "/"
+    public_exempt_endpoints = {
+        "static",
+        "admin_login",
+        "admin_logout",
+        "admin_dashboard",
+        "admin_live_stats",
+        "admin_backup_db",
+        "admin_view_receipt",
+        "acme_challenge",
+        "site_update_page",
+        "site_domain_move_page",
+    }
+    if endpoint in public_exempt_endpoints:
+        return None
+    if path.startswith("/admin"):
+        return None
+
+    if SITE_UPDATE_MODE:
+        if path.startswith("/api/"):
+            return jsonify({"ok": False, "message": "سایت در حال بروزرسانی است."}), 503
+        return redirect(url_for("site_update_page"))
+
+    if SITE_DOMAIN_MOVE_MODE:
+        if path.startswith("/api/"):
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": "سایت به دامنه جدید منتقل شده است.",
+                    "target_url": SITE_DOMAIN_MOVE_TARGET,
+                }
+            ), 503
+        return redirect(url_for("site_domain_move_page"))
+
+
 @app.route("/")
 def home():
     db = get_db()
@@ -381,11 +432,22 @@ def home():
                    WHERE ua.user_id = t.user_id
                ) AS category_titles
         FROM testimonials t
+        WHERE t.status='approved'
         ORDER BY t.id DESC
         LIMIT 160
         """
     ).fetchall()
     return render_template("home.html", categories=categories, testimonials=testimonials)
+
+
+@app.route("/site-update")
+def site_update_page():
+    return render_template("site_update.html")
+
+
+@app.route("/site-domain-moved")
+def site_domain_move_page():
+    return render_template("site_domain_moved.html", target_url=SITE_DOMAIN_MOVE_TARGET)
 
 
 @app.route("/samples/<slug>")
@@ -646,6 +708,7 @@ def api_my_videos():
                     "title": row["video_title"],
                     "watch_url": url_for("watch_video", token=token),
                     "type": row["source_type"],
+                    "external_url": row["external_url"],
                 }
             )
 
@@ -993,7 +1056,7 @@ def submit_report():
     report_type = request.form.get("report_type", "").strip()
     report_text = request.form.get("report_text", "").strip()
     device_id = request.form.get("device_id", "").strip()
-    allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی", "نظرسنجی"}
+    allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی"}
 
     if report_type not in allowed_types or not report_text or not device_id:
         return jsonify({"ok": False, "message": "اطلاعات ریپورت کامل نیست."}), 400
@@ -1008,20 +1071,6 @@ def submit_report():
     user_id = user["id"] if user else None
     reporter_name = f"کاربر {user_id}" if user_id else "کاربر مهمان"
 
-    if report_type == "نظرسنجی":
-        if not user_id:
-            return jsonify({"ok": False, "message": "فقط خریداران می‌توانند نظر ثبت کنند."}), 403
-        purchased = db.execute(
-            "SELECT COUNT(*) AS c FROM purchase_requests WHERE user_id=? AND status='approved'",
-            (user_id,),
-        ).fetchone()["c"]
-        if purchased == 0:
-            return jsonify({"ok": False, "message": "برای نظرسنجی باید خرید تاییدشده داشته باشید."}), 403
-        db.execute(
-            "INSERT INTO testimonials(user_id,display_name,content,is_seed,created_at) VALUES(?,?,?,?,?)",
-            (user_id, reporter_name, report_text, 0, now_iso()),
-        )
-
     db.execute(
         "INSERT INTO reports(device_id, user_id, reporter_name, report_type, report_text, created_at) VALUES(?,?,?,?,?,?)",
         (device_id, user_id, reporter_name, report_type, report_text, now_iso()),
@@ -1032,6 +1081,43 @@ def submit_report():
     )
     db.commit()
     return jsonify({"ok": True, "message": "ریپورت ثبت شد و برای ادمین ارسال شد."})
+
+
+@app.post("/api/testimonials")
+def submit_testimonial():
+    testimonial_text = request.form.get("testimonial_text", "").strip()
+    device_id = request.form.get("device_id", "").strip()
+    if not testimonial_text or not device_id:
+        return jsonify({"ok": False, "message": "متن نظر و شناسه دستگاه الزامی است."}), 400
+
+    db = get_db()
+    register_visit(device_id, db=db)
+    visitor = db.execute("SELECT * FROM visitors WHERE device_id=?", (device_id,)).fetchone()
+    if visitor and visitor["is_banned"]:
+        return jsonify({"ok": False, "message": "این دستگاه مسدود شده است."}), 403
+
+    user = db.execute("SELECT id FROM users WHERE device_id=?", (device_id,)).fetchone()
+    user_id = user["id"] if user else None
+    if not user_id:
+        return jsonify({"ok": False, "message": "فقط خریداران می‌توانند نظر ثبت کنند."}), 403
+
+    purchased = db.execute(
+        "SELECT COUNT(*) AS c FROM purchase_requests WHERE user_id=? AND status='approved'",
+        (user_id,),
+    ).fetchone()["c"]
+    if purchased == 0:
+        return jsonify({"ok": False, "message": "برای ثبت نظر باید خرید تاییدشده داشته باشید."}), 403
+
+    reporter_name = f"کاربر {user_id}"
+    db.execute(
+        """
+        INSERT INTO testimonials(user_id,display_name,content,status,is_seed,created_at)
+        VALUES(?,?,?,?,?,?)
+        """,
+        (user_id, reporter_name, testimonial_text, "pending", 0, now_iso()),
+    )
+    db.commit()
+    return jsonify({"ok": True, "message": "نظر شما ثبت شد و پس از تایید ادمین نمایش داده می‌شود."})
 
 
 @app.get("/api/my-report-replies")
@@ -1247,6 +1333,36 @@ def admin_delete_testimonial(testimonial_id):
     return jsonify({"ok": True})
 
 
+@app.post("/admin/api/testimonials/<int:testimonial_id>/approve")
+@admin_required
+def admin_approve_testimonial(testimonial_id):
+    db = get_db()
+    row = db.execute("SELECT id FROM testimonials WHERE id=?", (testimonial_id,)).fetchone()
+    if not row:
+        return jsonify({"ok": False, "message": "نظر پیدا نشد."}), 404
+    db.execute(
+        "UPDATE testimonials SET status='approved', admin_note=NULL, reviewed_at=? WHERE id=?",
+        (now_iso(), testimonial_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/testimonials/<int:testimonial_id>/reject")
+@admin_required
+def admin_reject_testimonial(testimonial_id):
+    db = get_db()
+    row = db.execute("SELECT id FROM testimonials WHERE id=?", (testimonial_id,)).fetchone()
+    if not row:
+        return jsonify({"ok": False, "message": "نظر پیدا نشد."}), 404
+    db.execute(
+        "UPDATE testimonials SET status='rejected', reviewed_at=? WHERE id=?",
+        (now_iso(), testimonial_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.post("/admin/api/videos")
 @admin_required
 def admin_create_video():
@@ -1271,6 +1387,8 @@ def admin_create_video():
         source_type = "file"
         file_path = final_name
     elif external_url:
+        if "://" not in external_url:
+            external_url = f"https://{external_url}"
         source_type = "url"
     else:
         return jsonify({"ok": False, "message": "یا فایل zip بده یا لینک."}), 400
@@ -1433,6 +1551,12 @@ def acme_challenge(filename):
     return send_file(
         os.path.join(BASE_DIR, ".well-known", "acme-challenge", filename)
     )
+
+def create_app():
+    init_db()      # دیتابیس هنگام اجرا ساخته می‌شود
+    return app     # برنامه را به Gunicorn می‌دهیم
+
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
