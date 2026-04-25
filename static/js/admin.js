@@ -7,6 +7,7 @@
   const statNodes = document.querySelectorAll("[data-stat-key]");
   const notifToggleBtn = document.getElementById("notif-toggle-btn");
   const onlineByPageBody = document.getElementById("online-by-page-body");
+  const settingsForm = document.getElementById("settings-form");
   let lastPurchaseId = 0;
   let lastReportId = 0;
   const NOTIF_KEY = "mx_admin_notif_enabled";
@@ -53,6 +54,21 @@
       notificationsEnabled = !notificationsEnabled;
       localStorage.setItem(NOTIF_KEY, notificationsEnabled ? "1" : "0");
       renderNotifToggle();
+    });
+  }
+
+  if (settingsForm) {
+    settingsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(settingsForm);
+      const res = await fetch("/admin/api/settings", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در ذخیره تنظیمات");
+        return;
+      }
+      alert("تنظیمات ذخیره شد");
+      window.location.reload();
     });
   }
 

@@ -1,5 +1,8 @@
 ﻿import os
+import re
+import secrets
 import sqlite3
+import string
 import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -70,9 +73,11 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024 * 1024  # 10GB
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 ONLINE_SECONDS = 120
 DOWNLOAD_ACTIVE_SECONDS = 180
-SITE_UPDATE_MODE = False
-SITE_DOMAIN_MOVE_MODE = False
-SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
+DEFAULT_SITE_UPDATE_MODE = False
+DEFAULT_SITE_DOMAIN_MOVE_MODE = False
+DEFAULT_SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
+DEFAULT_UTC_ADJUST_HOURS = 4
+DEFAULT_MAX_DEVICES_PER_USER = 2
 
 
 def tehran_now_iso() -> str:
@@ -88,13 +93,13 @@ def format_tehran(iso_value: str | None) -> str:
         return iso_value
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
+    adjusted = dt.astimezone(TEHRAN_TZ) - timedelta(hours=get_utc_adjust_hours())
     return adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
 def to_tehran_adjusted(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-    return dt.astimezone(TEHRAN_TZ) - timedelta(hours=4)
+    return dt.astimezone(TEHRAN_TZ) - timedelta(hours=get_utc_adjust_hours())
 
 def tehran_day_range_utc_iso(offset_days: int = 0) -> tuple[str, str]:
     now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
@@ -106,14 +111,99 @@ def tehran_day_range_utc_iso(offset_days: int = 0) -> tuple[str, str]:
     next_day_adj = day_start_adj + timedelta(days=1)
 
     # برگردوندن به UTC واقعی
-    start_utc = (day_start_adj + timedelta(hours=4)).astimezone(ZoneInfo("UTC"))
-    end_utc = (next_day_adj + timedelta(hours=4)).astimezone(ZoneInfo("UTC"))
+    adjust_hours = get_utc_adjust_hours()
+    start_utc = (day_start_adj + timedelta(hours=adjust_hours)).astimezone(ZoneInfo("UTC"))
+    end_utc = (next_day_adj + timedelta(hours=adjust_hours)).astimezone(ZoneInfo("UTC"))
 
     return start_utc.replace(tzinfo=None).isoformat(), end_utc.replace(tzinfo=None).isoformat()
 
 
 def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="mx-watch")
+
+
+def _read_setting_from_db(key: str):
+    mdb = mongo_db()
+    if mdb is None:
+        return None
+    try:
+        row = mdb["app_settings"].find_one({"key": key})
+        return row.get("value") if row else None
+    except Exception:
+        return None
+
+
+def get_setting(key: str, default_value: str) -> str:
+    db_value = _read_setting_from_db(key)
+    return db_value if db_value is not None else default_value
+
+
+def setting_bool(key: str, default_value: bool = False) -> bool:
+    return get_setting(key, "1" if default_value else "0") == "1"
+
+
+def setting_int(key: str, default_value: int) -> int:
+    raw = get_setting(key, str(default_value))
+    try:
+        return int(raw)
+    except Exception:
+        return default_value
+
+
+def get_utc_adjust_hours() -> int:
+    return setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS)
+
+
+def generate_access_code(length: int = 16) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def get_mongo_client():
+    if "mongo_client" in app.extensions:
+        return app.extensions["mongo_client"]
+    uri = os.environ.get("MONGO_URI", "mongodb://mg:mani2244@195.177.255.54:27017/")
+    db_name = os.environ.get("MONGO_DB_NAME", "site_mx")
+    try:
+        pymongo_mod = __import__("pymongo")
+        client = pymongo_mod.MongoClient(uri, serverSelectionTimeoutMS=1500)
+        app.extensions["mongo_client"] = client
+        app.extensions["mongo_db_name"] = db_name
+        return client
+    except Exception:
+        app.extensions["mongo_client"] = None
+        return None
+
+
+def mongo_upsert(collection_name: str, filter_doc: dict, update_doc: dict):
+    client = get_mongo_client()
+    if not client:
+        return
+    try:
+        db_name = app.extensions.get("mongo_db_name", "site_mx")
+        client[db_name][collection_name].update_one(filter_doc, {"$set": update_doc}, upsert=True)
+    except Exception:
+        return
+
+
+def mongo_db():
+    client = get_mongo_client()
+    if not client:
+        return None
+    return client[app.extensions.get("mongo_db_name", "site_mx")]
+
+
+def mongo_next_id(sequence_name: str) -> int:
+    mdb = mongo_db()
+    if mdb is None:
+        raise RuntimeError("MongoDB unavailable")
+    row = mdb["counters"].find_one({"_id": sequence_name})
+    if not row:
+        mdb["counters"].insert_one({"_id": sequence_name, "v": 1})
+        return 1
+    next_v = int(row.get("v", 0)) + 1
+    mdb["counters"].update_one({"_id": sequence_name}, {"$set": {"v": next_v}})
+    return next_v
 
 
 def get_db():
@@ -272,6 +362,31 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS auth_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            access_code TEXT NOT NULL UNIQUE,
+            note TEXT,
+            is_banned INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS auth_user_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            auth_user_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            UNIQUE(auth_user_id, device_id),
+            FOREIGN KEY (auth_user_id) REFERENCES auth_users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_purchase_requests_user_status
             ON purchase_requests(user_id, status, id);
         CREATE INDEX IF NOT EXISTS idx_purchase_requests_user_created
@@ -286,6 +401,8 @@ def init_db():
             ON presence_sessions(updated_at);
         CREATE INDEX IF NOT EXISTS idx_download_updated
             ON download_sessions(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_auth_user_devices_user
+            ON auth_user_devices(auth_user_id);
         """
     )
 
@@ -295,6 +412,56 @@ def init_db():
     visitor_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(visitors)").fetchall()]
     if "username" not in visitor_cols:
         cursor.execute("ALTER TABLE visitors ADD COLUMN username TEXT")
+    if "user_agent" not in visitor_cols:
+        cursor.execute("ALTER TABLE visitors ADD COLUMN user_agent TEXT")
+    if "browser_name" not in visitor_cols:
+        cursor.execute("ALTER TABLE visitors ADD COLUMN browser_name TEXT")
+    if "os_name" not in visitor_cols:
+        cursor.execute("ALTER TABLE visitors ADD COLUMN os_name TEXT")
+    if "device_model" not in visitor_cols:
+        cursor.execute("ALTER TABLE visitors ADD COLUMN device_model TEXT")
+    auth_user_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(auth_users)").fetchall()]
+    if "access_code" not in auth_user_cols:
+        cursor.execute("ALTER TABLE auth_users ADD COLUMN access_code TEXT")
+    if "note" not in auth_user_cols:
+        cursor.execute("ALTER TABLE auth_users ADD COLUMN note TEXT")
+    null_code_rows = cursor.execute("SELECT id FROM auth_users WHERE access_code IS NULL OR access_code=''").fetchall()
+    for row in null_code_rows:
+        while True:
+            new_code = generate_access_code(16)
+            exists = cursor.execute("SELECT id FROM auth_users WHERE access_code=?", (new_code,)).fetchone()
+            if exists:
+                continue
+            cursor.execute("UPDATE auth_users SET access_code=?, updated_at=? WHERE id=?", (new_code, datetime.utcnow().isoformat(), row["id"]))
+            break
+    duplicate_rows = cursor.execute(
+        """
+        SELECT access_code FROM auth_users
+        WHERE access_code IS NOT NULL AND access_code<>''
+        GROUP BY access_code
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+    for dup in duplicate_rows:
+        rows = cursor.execute(
+            "SELECT id FROM auth_users WHERE access_code=? ORDER BY id ASC",
+            (dup["access_code"],),
+        ).fetchall()
+        for item in rows[1:]:
+            while True:
+                new_code = generate_access_code(16)
+                exists = cursor.execute("SELECT id FROM auth_users WHERE access_code=?", (new_code,)).fetchone()
+                if exists:
+                    continue
+                cursor.execute("UPDATE auth_users SET access_code=?, updated_at=? WHERE id=?", (new_code, datetime.utcnow().isoformat(), item["id"]))
+                break
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_access_code
+        ON auth_users(access_code)
+        """
+    )
+
     report_cols = [r["name"] for r in cursor.execute("PRAGMA table_info(reports)").fetchall()]
     if "reporter_name" not in report_cols:
         cursor.execute("ALTER TABLE reports ADD COLUMN reporter_name TEXT")
@@ -314,6 +481,23 @@ def init_db():
     if "reviewed_at" not in testimonial_cols:
         cursor.execute("ALTER TABLE testimonials ADD COLUMN reviewed_at TEXT")
 
+    default_settings = {
+        "site_update_mode": "1" if DEFAULT_SITE_UPDATE_MODE else "0",
+        "site_domain_move_mode": "1" if DEFAULT_SITE_DOMAIN_MOVE_MODE else "0",
+        "site_domain_move_target": DEFAULT_SITE_DOMAIN_MOVE_TARGET,
+        "utc_adjust_hours": str(DEFAULT_UTC_ADJUST_HOURS),
+        "max_devices_per_user": str(DEFAULT_MAX_DEVICES_PER_USER),
+        "maintenance_fallback_url": "http://mxdomain.top:5000",
+    }
+    for key, value in default_settings.items():
+        cursor.execute(
+            """
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES(?,?,?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (key, value, datetime.utcnow().isoformat()),
+        )
 
     db.commit()
     db.close()
@@ -327,40 +511,92 @@ def allowed_file(filename: str, allowed_extensions: set[str]) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_extensions
 
 
+def parse_user_agent(user_agent: str) -> dict[str, str]:
+    ua = user_agent or ""
+    ua_low = ua.lower()
+    browser_name = "Unknown"
+    if "crios" in ua_low:
+        browser_name = "Chrome iOS"
+    elif "chrome/" in ua_low:
+        browser_name = "Chrome"
+    elif "firefox/" in ua_low:
+        browser_name = "Firefox"
+    elif "safari/" in ua_low and "chrome/" not in ua_low:
+        browser_name = "Safari"
+
+    os_name = "Unknown"
+    if "iphone" in ua_low or "ipad" in ua_low:
+        os_name = "iOS"
+    elif "android" in ua_low:
+        os_name = "Android"
+    elif "windows" in ua_low:
+        os_name = "Windows"
+    elif "mac os x" in ua_low:
+        os_name = "macOS"
+
+    device_model = "Desktop"
+    if "iphone" in ua_low:
+        device_model = "iPhone"
+    elif "ipad" in ua_low:
+        device_model = "iPad"
+    elif "android" in ua_low:
+        device_model = "Android"
+    return {"browser_name": browser_name, "os_name": os_name, "device_model": device_model}
+
+
 def register_visit(device_id: str, db=None):
     if not device_id:
         return
-    local_db = db or get_db()
-    should_commit = db is None
-    existing = local_db.execute(
-        "SELECT id, visit_count, last_seen_at FROM visitors WHERE device_id=?",
-        (device_id,),
-    ).fetchone()
-    updated = False
-    if existing:
-        try:
-            last_seen = datetime.fromisoformat(existing["last_seen_at"])
-        except Exception:
-            last_seen = None
-        now = datetime.utcnow()
-        should_update = last_seen is None or (now - last_seen).total_seconds() >= 120
-        if should_update:
-            local_db.execute(
-                "UPDATE visitors SET last_seen_at=?, visit_count=visit_count+1 WHERE id=?",
-                (now_iso(), existing["id"]),
-            )
-            updated = True
-    else:
-        local_db.execute(
-            """
-            INSERT INTO visitors(device_id, username, first_seen_at, last_seen_at, visit_count)
-            VALUES(?,?,?,?,?)
-            """,
-            (device_id, None, now_iso(), now_iso(), 1),
+    ua = request.headers.get("User-Agent", "")
+    ua_meta = parse_user_agent(ua)
+    mdb = mongo_db()
+    if mdb is None:
+        return
+    existing = mdb["visitors"].find_one({"device_id": device_id})
+    if not existing:
+        mdb["visitors"].insert_one(
+            {
+                "id": mongo_next_id("visitors"),
+                "device_id": device_id,
+                "username": None,
+                "first_seen_at": now_iso(),
+                "last_seen_at": now_iso(),
+                "visit_count": 1,
+                "purchase_count": 0,
+                "report_count": 0,
+                "is_banned": 0,
+                "user_agent": ua,
+                "browser_name": ua_meta["browser_name"],
+                "os_name": ua_meta["os_name"],
+                "device_model": ua_meta["device_model"],
+            }
         )
-        updated = True
-    if should_commit and updated:
-        local_db.commit()
+    else:
+        mdb["visitors"].update_one(
+            {"device_id": device_id},
+            {
+                "$set": {
+                    "last_seen_at": now_iso(),
+                    "user_agent": ua,
+                    "browser_name": ua_meta["browser_name"],
+                    "os_name": ua_meta["os_name"],
+                    "device_model": ua_meta["device_model"],
+                },
+                "$inc": {"visit_count": 1},
+            },
+        )
+    mongo_upsert(
+        "visitors",
+        {"device_id": device_id},
+        {
+            "device_id": device_id,
+            "last_seen_at": now_iso(),
+            "user_agent": ua,
+            "browser_name": ua_meta["browser_name"],
+            "os_name": ua_meta["os_name"],
+            "device_model": ua_meta["device_model"],
+        },
+    )
 
 
 def cleanup_live_sessions(db):
@@ -380,6 +616,81 @@ def admin_required(func):
     return wrapper
 
 
+def current_auth_user(db=None):
+    access_code = session.get("auth_access_code")
+    mdb = mongo_db()
+    if access_code and mdb is not None:
+        doc = mdb["auth_users"].find_one({"access_code": access_code})
+        if doc:
+            doc["id"] = str(doc.get("_id"))
+            return doc
+    return None
+
+
+def get_device_id_from_request(payload: dict | None = None) -> str:
+    if payload and payload.get("device_id"):
+        return str(payload.get("device_id")).strip()
+    form_val = request.form.get("device_id", "").strip()
+    if form_val:
+        return form_val
+    query_val = request.args.get("device_id", "").strip()
+    if query_val:
+        return query_val
+    return request.cookies.get("mx_device_id", "").strip()
+
+
+def require_auth_for_api(db, payload: dict | None = None):
+    auth_user = current_auth_user(db=db)
+    if not auth_user:
+        return None, jsonify({"ok": False, "message": "ابتدا وارد حساب شوید.", "login_required": True}), 401
+    device_id = get_device_id_from_request(payload=payload)
+    if not device_id:
+        return None, jsonify({"ok": False, "message": "شناسه دستگاه پیدا نشد.", "login_required": True}), 401
+    mdb = mongo_db()
+    if mdb is None or not auth_user.get("access_code"):
+        return None, jsonify({"ok": False, "message": "MongoDB در دسترس نیست.", "login_required": True}), 503
+    bind = mdb["auth_user_devices"].find_one({"access_code": auth_user["access_code"], "device_id": device_id})
+    if not bind:
+        return None, jsonify({"ok": False, "message": "دستگاه شما برای این اکانت مجاز نیست.", "login_required": True}), 403
+    return (auth_user, device_id), None, None
+
+
+def bind_device_to_auth_user(auth_user_id: int, device_id: str, db):
+    mdb = mongo_db()
+    if mdb is None or not isinstance(auth_user_id, str):
+        return False, "MongoDB در دسترس نیست."
+    max_devices = setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)
+    existing = mdb["auth_user_devices"].find_one({"access_code": auth_user_id, "device_id": device_id})
+    if existing:
+        mdb["auth_user_devices"].update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"last_seen_at": now_iso()}},
+        )
+        return True, ""
+    count = mdb["auth_user_devices"].count_documents({"access_code": auth_user_id})
+    if count >= max_devices:
+        return False, f"این اکانت فقط روی {max_devices} دستگاه مجاز است."
+    mdb["auth_user_devices"].insert_one(
+        {
+            "access_code": auth_user_id,
+            "device_id": device_id,
+            "first_seen_at": now_iso(),
+            "last_seen_at": now_iso(),
+        }
+    )
+    return True, ""
+
+
+def is_iphone_user_agent(user_agent: str) -> bool:
+    ua = user_agent or ""
+    return bool(re.search(r"iphone|ipod", ua, flags=re.IGNORECASE))
+
+
+def is_chrome_ios_user_agent(user_agent: str) -> bool:
+    ua = user_agent or ""
+    return bool(re.search(r"crios", ua, flags=re.IGNORECASE))
+
+
 @app.before_request
 def site_global_modes():
     endpoint = request.endpoint or ""
@@ -395,27 +706,49 @@ def site_global_modes():
         "acme_challenge",
         "site_update_page",
         "site_domain_move_page",
+        "iphone_chrome_required_page",
+        "api_system_status",
     }
     if endpoint in public_exempt_endpoints:
         return None
     if path.startswith("/admin"):
         return None
 
-    if SITE_UPDATE_MODE:
+    site_update_mode = setting_bool("site_update_mode", DEFAULT_SITE_UPDATE_MODE)
+    site_domain_move_mode = setting_bool("site_domain_move_mode", DEFAULT_SITE_DOMAIN_MOVE_MODE)
+    site_domain_target = get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET)
+
+    if site_update_mode:
         if path.startswith("/api/"):
             return jsonify({"ok": False, "message": "سایت در حال بروزرسانی است."}), 503
         return redirect(url_for("site_update_page"))
 
-    if SITE_DOMAIN_MOVE_MODE:
+    if site_domain_move_mode:
         if path.startswith("/api/"):
             return jsonify(
                 {
                     "ok": False,
                     "message": "سایت به دامنه جدید منتقل شده است.",
-                    "target_url": SITE_DOMAIN_MOVE_TARGET,
+                    "target_url": site_domain_target,
                 }
             ), 503
         return redirect(url_for("site_domain_move_page"))
+
+    user_agent = request.headers.get("User-Agent", "")
+    if is_iphone_user_agent(user_agent) and not is_chrome_ios_user_agent(user_agent):
+        if path.startswith("/api/"):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "message": "در iPhone فقط مرورگر Chrome مجاز است.",
+                        "need_chrome_ios": True,
+                    }
+                ),
+                403,
+            )
+        if path != "/iphone-chrome-required":
+            return redirect(url_for("iphone_chrome_required_page", next=request.url))
 
 
 @app.route("/")
@@ -442,12 +775,138 @@ def home():
 
 @app.route("/site-update")
 def site_update_page():
-    return render_template("site_update.html")
+    fallback_url = get_setting("maintenance_fallback_url", "http://mxdomain.top:5000")
+    return render_template("site_update.html", fallback_url=fallback_url)
 
 
 @app.route("/site-domain-moved")
 def site_domain_move_page():
-    return render_template("site_domain_moved.html", target_url=SITE_DOMAIN_MOVE_TARGET)
+    target_url = get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET)
+    return render_template("site_domain_moved.html", target_url=target_url)
+
+
+@app.get("/api/system-status")
+def api_system_status():
+    return jsonify(
+        {
+            "ok": True,
+            "site_update_mode": setting_bool("site_update_mode", DEFAULT_SITE_UPDATE_MODE),
+            "site_domain_move_mode": setting_bool("site_domain_move_mode", DEFAULT_SITE_DOMAIN_MOVE_MODE),
+            "site_domain_move_target": get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET),
+        }
+    )
+
+
+@app.route("/iphone-chrome-required")
+def iphone_chrome_required_page():
+    next_url = request.args.get("next", url_for("home"))
+    open_url = request.args.get("open", "")
+    return render_template("iphone_chrome_required.html", next_url=next_url, open_url=open_url)
+
+
+@app.get("/login")
+def login_page():
+    next_url = request.args.get("next", url_for("home"))
+    if session.get("auth_user_id") or session.get("auth_access_code"):
+        return redirect(next_url)
+    return render_template("login.html", next_url=next_url)
+
+
+@app.post("/api/auth/login")
+def api_auth_login():
+    payload = request.get_json(silent=True) or {}
+    access_code = (payload.get("access_code") or "").strip().upper()
+    device_id = get_device_id_from_request(payload)
+    if not access_code or len(access_code) != 16 or not device_id:
+        return jsonify({"ok": False, "message": "کد ۱۶ کاراکتری و شناسه دستگاه الزامی است."}), 400
+
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    user = mdb["auth_users"].find_one({"access_code": access_code})
+    if not user:
+        return jsonify({"ok": False, "message": "کد وارد شده اشتباه است."}), 401
+    ok, msg = bind_device_to_auth_user(access_code, device_id, None)
+    if not ok:
+        return jsonify({"ok": False, "message": msg}), 403
+    mdb["auth_users"].update_one({"access_code": access_code}, {"$set": {"updated_at": now_iso()}})
+    session["auth_access_code"] = access_code
+    session.pop("auth_user_id", None)
+    return jsonify({"ok": True, "access_code": access_code})
+
+
+@app.post("/api/auth/create-code")
+def api_auth_create_code():
+    payload = request.get_json(silent=True) or {}
+    device_id = get_device_id_from_request(payload)
+    if not device_id:
+        return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
+
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    for _ in range(10):
+        access_code = generate_access_code(16)
+        exists = mdb["auth_users"].find_one({"access_code": access_code})
+        if exists:
+            continue
+        mdb["auth_users"].insert_one(
+            {
+                "access_code": access_code,
+                "note": "first_purchase",
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            }
+        )
+        ok, msg = bind_device_to_auth_user(access_code, device_id, None)
+        if not ok:
+            return jsonify({"ok": False, "message": msg}), 403
+        session["auth_access_code"] = access_code
+        session.pop("auth_user_id", None)
+        return jsonify(
+            {
+                "ok": True,
+                "access_code": access_code,
+                "message": "کد شما ساخته شد. حتما آن را نگه دارید؛ در غیر این صورت دسترسی شما قطع می‌شود.",
+            }
+        )
+    return jsonify({"ok": False, "message": "فعلا امکان ساخت کد نیست. دوباره تلاش کنید."}), 500
+
+
+@app.get("/api/auth/status")
+def api_auth_status():
+    device_id = get_device_id_from_request()
+    user = current_auth_user(db=None)
+    if not user:
+        return jsonify({"ok": True, "logged_in": False})
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    has_device = mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": device_id})
+    return jsonify(
+        {
+            "ok": True,
+            "logged_in": bool(has_device),
+            "access_code": user["access_code"],
+            "max_devices": setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER),
+        }
+    )
+
+
+@app.get("/api/auth/my-code")
+def api_auth_my_code():
+    auth_result, err_resp, err_status = require_auth_for_api(None)
+    if err_resp is not None:
+        return err_resp, err_status
+    auth_user, _device_id = auth_result
+    return jsonify({"ok": True, "access_code": auth_user["access_code"]})
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout():
+    session.pop("auth_user_id", None)
+    session.pop("auth_access_code", None)
+    return jsonify({"ok": True})
 
 
 @app.route("/samples/<slug>")
@@ -471,11 +930,9 @@ def api_register_visit():
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
 
     register_visit(device_id)
-    visitor = get_db().execute(
-        "SELECT is_banned FROM visitors WHERE device_id=?",
-        (device_id,),
-    ).fetchone()
-    if visitor and visitor["is_banned"]:
+    mdb = mongo_db()
+    visitor = mdb["visitors"].find_one({"device_id": device_id}) if mdb is not None else None
+    if visitor and int(visitor.get("is_banned", 0)) == 1:
         return jsonify({"ok": False, "message": "این دستگاه مسدود شده است."}), 403
     return jsonify({"ok": True})
 
@@ -504,6 +961,8 @@ def api_presence():
 
 @app.route("/buy/<slug>")
 def buy_page(slug):
+    if not session.get("auth_user_id") and not session.get("auth_access_code"):
+        return redirect(url_for("login_page", next=request.full_path.rstrip("?")))
     db = get_db()
     category = db.execute("SELECT * FROM categories WHERE slug=?", (slug,)).fetchone()
     if not category:
@@ -513,51 +972,60 @@ def buy_page(slug):
 
 @app.post("/api/submit-request")
 def submit_request():
-    device_id = request.form.get("device_id", "").strip()
+    device_id = get_device_id_from_request()
     category_id = request.form.get("category_id", "").strip()
     receipt = request.files.get("receipt")
 
     if not device_id or not category_id:
         return jsonify({"ok": False, "message": "شناسه دستگاه و فیش الزامی هستند."}), 400
 
-    db = get_db()
-    register_visit(device_id, db=db)
-    category = db.execute("SELECT * FROM categories WHERE id=?", (category_id,)).fetchone()
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    auth_result, err_resp, err_status = require_auth_for_api(None)
+    if err_resp is not None:
+        return err_resp, err_status
+    auth_user, _bound_device_id = auth_result
+
+    register_visit(device_id)
+    try:
+        category_id_int = int(category_id)
+    except Exception:
+        return jsonify({"ok": False, "message": "دسته‌بندی نامعتبر است."}), 400
+    category = mdb["categories"].find_one({"id": category_id_int})
     if not category:
         return jsonify({"ok": False, "message": "دسته‌بندی نامعتبر است."}), 400
 
-    visitor = db.execute("SELECT * FROM visitors WHERE device_id=?", (device_id,)).fetchone()
-    if visitor and visitor["is_banned"]:
+    visitor = mdb["visitors"].find_one({"device_id": device_id})
+    if visitor and int(visitor.get("is_banned", 0)) == 1:
         return jsonify({"ok": False, "message": "این دستگاه توسط ادمین مسدود شده است."}), 403
 
-    user = db.execute("SELECT * FROM users WHERE device_id=?", (device_id,)).fetchone()
+    user = mdb["users"].find_one({"device_id": device_id})
 
     if user is None:
         alias = device_id.replace("-", "")[:12] or uuid.uuid4().hex[:12]
         full_name = f"user-{alias}"
         pseudo_phone = f"device-{alias}"
-        db.execute(
-            "INSERT INTO users(full_name,phone,device_id,created_at,updated_at) VALUES(?,?,?,?,?)",
-            (full_name, pseudo_phone, device_id, now_iso(), now_iso()),
-        )
-        db.commit()
-        user = db.execute("SELECT * FROM users WHERE device_id=?", (device_id,)).fetchone()
+        new_user = {
+            "id": mongo_next_id("users"),
+            "full_name": full_name,
+            "phone": pseudo_phone,
+            "device_id": device_id,
+            "is_banned": 0,
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        mdb["users"].insert_one(new_user)
+        user = new_user
     else:
-        if user["is_banned"]:
+        if int(user.get("is_banned", 0)) == 1:
             return jsonify({"ok": False, "message": "این دستگاه توسط ادمین مسدود شده است."}), 403
-        db.execute(
-            "UPDATE users SET updated_at=? WHERE id=?",
-            (now_iso(), user["id"]),
+        mdb["users"].update_one(
+            {"device_id": device_id},
+            {"$set": {"updated_at": now_iso()}},
         )
 
-    pending_request = db.execute(
-        """
-        SELECT id FROM purchase_requests
-        WHERE user_id=? AND status='pending'
-        ORDER BY id DESC LIMIT 1
-        """,
-        (user["id"],),
-    ).fetchone()
+    pending_request = mdb["purchase_requests"].find_one({"user_id": user["id"], "status": "pending"})
     if pending_request:
         return jsonify(
             {
@@ -579,19 +1047,32 @@ def submit_request():
     final_path = os.path.join(RECEIPTS_DIR, final_name)
     receipt.save(final_path)
 
-    db.execute(
-        """
-        INSERT INTO purchase_requests(
-            user_id,requested_category_id,receipt_path,status,created_at
-        ) VALUES(?,?,?,?,?)
-        """,
-        (user["id"], category["id"], final_name, "pending", now_iso()),
+    new_req = {
+        "id": mongo_next_id("purchase_requests"),
+        "user_id": user["id"],
+        "requested_category_id": category["id"],
+        "receipt_path": final_name,
+        "status": "pending",
+        "admin_note": None,
+        "created_at": now_iso(),
+        "reviewed_at": None,
+    }
+    mdb["purchase_requests"].insert_one(new_req)
+    mdb["visitors"].update_one(
+        {"device_id": device_id},
+        {"$set": {"last_seen_at": now_iso()}, "$inc": {"purchase_count": 1}},
     )
-    db.execute(
-        "UPDATE visitors SET purchase_count=purchase_count+1, last_seen_at=? WHERE device_id=?",
-        (now_iso(), device_id),
+    mongo_upsert(
+        "purchase_requests",
+        {"id": new_req["id"]},
+        {
+            "device_id": device_id,
+            "user_id": user["id"],
+            "category_id": category["id"],
+            "status": "pending",
+            "created_at": new_req["created_at"],
+        },
     )
-    db.commit()
 
     return jsonify(
         {
@@ -608,32 +1089,28 @@ def purchase_status():
     if not device_id:
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
 
-    db = get_db()
-    user = db.execute("SELECT id FROM users WHERE device_id=?", (device_id,)).fetchone()
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    user = mdb["users"].find_one({"device_id": device_id})
     if not user:
         return jsonify({"ok": True, "has_pending": False})
-
-    latest = db.execute(
-        """
-        SELECT status, admin_note, reviewed_at, created_at
-        FROM purchase_requests
-        WHERE user_id=?
-        ORDER BY id DESC LIMIT 1
-        """,
-        (user["id"],),
-    ).fetchone()
-    has_pending = bool(latest and latest["status"] == "pending")
-    is_rejected = bool(latest and latest["status"] == "rejected")
+    latest = mdb["purchase_requests"].find_one(
+        {"user_id": user["id"]},
+        sort=[("id", -1)],
+    )
+    has_pending = bool(latest and latest.get("status") == "pending")
+    is_rejected = bool(latest and latest.get("status") == "rejected")
     return jsonify(
         {
             "ok": True,
-            "latest_status": (latest["status"] if latest else None),
+            "latest_status": (latest.get("status") if latest else None),
             "has_pending": has_pending,
             "is_rejected": is_rejected,
             "message": CLIENT_WAITING_REVIEW_TEXT,
-            "rejected_note": (latest["admin_note"] if is_rejected else None),
-            "reviewed_at": (latest["reviewed_at"] if latest else None),
-            "created_at": (latest["created_at"] if latest else None),
+            "rejected_note": (latest.get("admin_note") if is_rejected else None),
+            "reviewed_at": (latest.get("reviewed_at") if latest else None),
+            "created_at": (latest.get("created_at") if latest else None),
         }
     )
 
@@ -841,6 +1318,11 @@ def admin_logout():
 def admin_dashboard():
     db = get_db()
     cleanup_live_sessions(db)
+    q = (request.args.get("q") or "").strip()
+    try:
+        visitors_limit = max(50, min(1000, int(request.args.get("limit") or "300")))
+    except Exception:
+        visitors_limit = 300
     today_start, tomorrow_start = tehran_day_range_utc_iso()
     yesterday_start, today_start_for_yesterday = tehran_day_range_utc_iso(offset_days=-1)
     requests_rows = db.execute(
@@ -885,8 +1367,27 @@ def admin_dashboard():
         LIMIT 250
         """
     ).fetchall()
+    visitors_query = """
+        SELECT * FROM visitors
+        WHERE (? = '' OR device_id LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(browser_name,'') LIKE ? OR COALESCE(os_name,'') LIKE ?)
+        ORDER BY last_seen_at DESC
+        LIMIT ?
+    """
     visitors = db.execute(
-        "SELECT * FROM visitors ORDER BY last_seen_at DESC LIMIT 500"
+        visitors_query,
+        (q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", visitors_limit),
+    ).fetchall()
+    auth_users = db.execute(
+        """
+        SELECT au.*, COUNT(aud.id) AS device_count, MAX(aud.last_seen_at) AS last_device_seen
+        FROM auth_users au
+        LEFT JOIN auth_user_devices aud ON aud.auth_user_id = au.id
+        WHERE (? = '' OR au.access_code LIKE ?)
+        GROUP BY au.id
+        ORDER BY au.updated_at DESC
+        LIMIT ?
+        """,
+        (q, f"%{q}%", visitors_limit),
     ).fetchall()
     user_categories_rows = db.execute(
         """
@@ -912,9 +1413,6 @@ def admin_dashboard():
         """ 
     ).fetchall()
     online_by_page = {row["page_key"]: row["c"] for row in online_by_page_rows}
-    print(today_start)
-    print(tomorrow_start)
-
     stats = {
         "total_visitors": db.execute("SELECT COUNT(*) AS c FROM visitors").fetchone()["c"],
         "total_purchases": db.execute("SELECT COUNT(*) AS c FROM purchase_requests").fetchone()["c"],
@@ -924,6 +1422,10 @@ def admin_dashboard():
         "pending_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='pending'").fetchone()["c"],
         "online_total": online_total,
         "downloading_now": downloading_now,
+        "active_last_minute": db.execute(
+            "SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions WHERE updated_at>=?",
+            ((datetime.utcnow() - timedelta(seconds=60)).isoformat(),),
+        ).fetchone()["c"],
         "today_purchases": db.execute(
             "SELECT COUNT(*) AS c FROM purchase_requests WHERE created_at>=? AND created_at<?",
             (today_start, tomorrow_start),
@@ -982,6 +1484,17 @@ def admin_dashboard():
         visitors=visitors,
         online_by_page=online_by_page,
         stats=stats,
+        visitors_limit=visitors_limit,
+        visitors_search=q,
+        auth_users=auth_users,
+        server_now=format_tehran(now_iso()),
+        server_day=to_tehran_adjusted(datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))).strftime("%A"),
+        site_update_mode=setting_bool("site_update_mode", DEFAULT_SITE_UPDATE_MODE),
+        site_domain_move_mode=setting_bool("site_domain_move_mode", DEFAULT_SITE_DOMAIN_MOVE_MODE),
+        site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET),
+        utc_adjust_hours=get_utc_adjust_hours(),
+        max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER),
+        maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"),
     )
 
 
@@ -1055,31 +1568,57 @@ def admin_reset_request_pending(request_id):
 def submit_report():
     report_type = request.form.get("report_type", "").strip()
     report_text = request.form.get("report_text", "").strip()
-    device_id = request.form.get("device_id", "").strip()
+    device_id = get_device_id_from_request()
     allowed_types = {"مستحجن", "کلاهبرداری", "پشتیبانی"}
 
     if report_type not in allowed_types or not report_text or not device_id:
         return jsonify({"ok": False, "message": "اطلاعات ریپورت کامل نیست."}), 400
 
-    db = get_db()
-    register_visit(device_id, db=db)
-    visitor = db.execute("SELECT * FROM visitors WHERE device_id=?", (device_id,)).fetchone()
-    if visitor and visitor["is_banned"]:
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    auth_result, err_resp, err_status = require_auth_for_api(None)
+    if err_resp is not None:
+        return err_resp, err_status
+    _auth_user, _bound_device_id = auth_result
+
+    register_visit(device_id)
+    visitor = mdb["visitors"].find_one({"device_id": device_id})
+    if visitor and int(visitor.get("is_banned", 0)) == 1:
         return jsonify({"ok": False, "message": "این دستگاه مسدود شده است."}), 403
 
-    user = db.execute("SELECT id FROM users WHERE device_id=?", (device_id,)).fetchone()
-    user_id = user["id"] if user else None
+    user = mdb["users"].find_one({"device_id": device_id})
+    user_id = user.get("id") if user else None
     reporter_name = f"کاربر {user_id}" if user_id else "کاربر مهمان"
 
-    db.execute(
-        "INSERT INTO reports(device_id, user_id, reporter_name, report_type, report_text, created_at) VALUES(?,?,?,?,?,?)",
-        (device_id, user_id, reporter_name, report_type, report_text, now_iso()),
+    new_report = {
+        "id": mongo_next_id("reports"),
+        "device_id": device_id,
+        "user_id": user_id,
+        "reporter_name": reporter_name,
+        "report_type": report_type,
+        "report_text": report_text,
+        "admin_reply": None,
+        "replied_at": None,
+        "user_seen_at": None,
+        "created_at": now_iso(),
+    }
+    mdb["reports"].insert_one(new_report)
+    mdb["visitors"].update_one(
+        {"device_id": device_id},
+        {"$set": {"last_seen_at": now_iso()}, "$inc": {"report_count": 1}},
     )
-    db.execute(
-        "UPDATE visitors SET report_count=report_count+1, last_seen_at=? WHERE device_id=?",
-        (now_iso(), device_id),
+    mongo_upsert(
+        "reports",
+        {"id": new_report["id"]},
+        {
+            "device_id": device_id,
+            "user_id": user_id,
+            "report_type": report_type,
+            "report_text": report_text,
+            "created_at": new_report["created_at"],
+        },
     )
-    db.commit()
     return jsonify({"ok": True, "message": "ریپورت ثبت شد و برای ادمین ارسال شد."})
 
 
@@ -1475,6 +2014,10 @@ def admin_live_stats():
         "rejected_receipts": db.execute("SELECT COUNT(*) AS c FROM purchase_requests WHERE status='rejected'").fetchone()["c"],
         "online_total": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions").fetchone()["c"],
         "downloading_now": db.execute("SELECT COUNT(DISTINCT device_id) AS c FROM download_sessions").fetchone()["c"],
+        "active_last_minute": db.execute(
+            "SELECT COUNT(DISTINCT device_id) AS c FROM presence_sessions WHERE updated_at>=?",
+            ((datetime.utcnow() - timedelta(seconds=60)).isoformat(),),
+        ).fetchone()["c"],
         "latest_purchase_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM purchase_requests").fetchone()["m"],
         "latest_report_id": db.execute("SELECT COALESCE(MAX(id),0) AS m FROM reports").fetchone()["m"],
         "today_purchases": db.execute(
@@ -1509,6 +2052,8 @@ def admin_live_stats():
             "SELECT COUNT(*) AS c FROM visitors WHERE last_seen_at>=? AND last_seen_at<?",
             (yesterday_start, today_start_for_yesterday),
         ).fetchone()["c"],
+        "server_now": format_tehran(now_iso()),
+        "server_day": to_tehran_adjusted(datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))).strftime("%A"),
     }
     return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page})
 
@@ -1530,6 +2075,42 @@ def admin_reply_report(report_id):
     )
     db.commit()
     return jsonify({"ok": True})
+
+
+@app.post("/admin/api/settings")
+@admin_required
+def admin_update_settings():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB در دسترس نیست."}), 503
+    site_update_mode = "1" if request.form.get("site_update_mode") == "1" else "0"
+    site_domain_move_mode = "1" if request.form.get("site_domain_move_mode") == "1" else "0"
+    site_domain_move_target = (request.form.get("site_domain_move_target") or "").strip() or DEFAULT_SITE_DOMAIN_MOVE_TARGET
+    maintenance_fallback_url = (request.form.get("maintenance_fallback_url") or "").strip() or "http://mxdomain.top:5000"
+    try:
+        utc_adjust_hours = int(request.form.get("utc_adjust_hours") or DEFAULT_UTC_ADJUST_HOURS)
+    except Exception:
+        return jsonify({"ok": False, "message": "utc_adjust_hours نامعتبر است."}), 400
+    try:
+        max_devices = int(request.form.get("max_devices_per_user") or DEFAULT_MAX_DEVICES_PER_USER)
+    except Exception:
+        return jsonify({"ok": False, "message": "max_devices_per_user نامعتبر است."}), 400
+
+    updates = {
+        "site_update_mode": site_update_mode,
+        "site_domain_move_mode": site_domain_move_mode,
+        "site_domain_move_target": site_domain_move_target,
+        "utc_adjust_hours": str(utc_adjust_hours),
+        "max_devices_per_user": str(max(1, min(10, max_devices))),
+        "maintenance_fallback_url": maintenance_fallback_url,
+    }
+    for key, value in updates.items():
+        mdb["app_settings"].update_one(
+            {"key": key},
+            {"$set": {"key": key, "value": value, "updated_at": now_iso()}},
+            upsert=True,
+        )
+    return jsonify({"ok": True, "message": "تنظیمات ذخیره شد."})
 
 
 @app.get("/admin/api/backup-db")
