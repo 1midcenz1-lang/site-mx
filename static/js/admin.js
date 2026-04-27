@@ -9,6 +9,8 @@
   const onlineByPageBody = document.getElementById("online-by-page-body");
   const settingsForm = document.getElementById("settings-form");
   const backupAllBtn = document.getElementById("download-all-backup-btn");
+  const purchaseRowsBody = document.getElementById("purchase-rows-body");
+  const reportRowsBody = document.getElementById("report-rows-body");
   const unseenBanner = document.getElementById("admin-unseen-banner");
   const unseenText = document.getElementById("admin-unseen-text");
   const liveToast = document.getElementById("admin-live-toast");
@@ -21,6 +23,10 @@
   let unseenTestimonialCount = Number(localStorage.getItem("mx_unseen_testimonial") || "0");
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
+  const categoryChips = Array.from(document.querySelectorAll(".category-title-input")).map((input) => ({
+    id: input.dataset.categoryId,
+    title: input.value,
+  }));
 
   function showPopup(message, tone) {
     const backdrop = document.createElement("div");
@@ -46,6 +52,94 @@
     if (!el) return;
     el.textContent = String(value);
   }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function renderPendingActions(rid, requestedCategory = "") {
+    const chips = categoryChips
+      .map((c) => `<label><input type="checkbox" name="category_ids" value="${escapeHtml(c.id)}" ${c.title === requestedCategory ? "checked" : ""} />${escapeHtml(c.title)}</label>`)
+      .join("");
+    return `<form class="approve-form" data-request-id="${rid}">
+      <div class="chips">${chips}</div>
+      <button class="btn small" type="submit">تایید</button>
+      <label>دلیل رد</label>
+      <textarea name="reject_reason" rows="2" placeholder="دلیل رد را بنویسید..."></textarea>
+      <button class="btn btn-danger small reject-btn" type="button" data-request-id="${rid}">رد</button>
+      <button class="btn small btn-ghost fake-btn" type="button" data-request-id="${rid}">فیک</button>
+    </form>`;
+  }
+
+  function renderResetAction(rid) {
+    return `<button class="btn small reset-pending-btn" type="button" data-request-id="${rid}">برگشت به pending</button>`;
+  }
+
+  document.addEventListener("click", async (evt) => {
+    const target = evt.target;
+    if (!(target instanceof Element)) return;
+    const resetBtn = target.closest(".reset-pending-btn");
+    if (resetBtn) {
+      const rid = resetBtn.dataset.requestId;
+      const res = await fetch(`/admin/api/requests/${rid}/reset-pending`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در بازگشت به pending");
+      showPopup("وضعیت به pending برگشت.");
+      refreshLiveStats();
+      refreshLiveFeed();
+      return;
+    }
+    const rejectBtn = target.closest(".reject-btn");
+    if (rejectBtn) {
+      const rid = rejectBtn.dataset.requestId;
+      const form = rejectBtn.closest("form");
+      const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
+      const reason = reasonInput ? reasonInput.value.trim() : "";
+      if (!reason) return showPopup("دلیل رد را وارد کنید.");
+      const fd = new FormData();
+      fd.append("reason", reason);
+      const res = await fetch(`/admin/api/requests/${rid}/reject`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در رد درخواست");
+      showPopup("رد شد");
+      refreshLiveStats();
+      refreshLiveFeed();
+      return;
+    }
+    const fakeBtn = target.closest(".fake-btn");
+    if (fakeBtn) {
+      const rid = fakeBtn.dataset.requestId;
+      const form = fakeBtn.closest("form");
+      const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
+      const reason = (reasonInput ? reasonInput.value.trim() : "") || "فیش نامعتبر تشخیص داده شد.";
+      const fd = new FormData();
+      fd.append("reason", reason);
+      const res = await fetch(`/admin/api/requests/${rid}/fake`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در ثبت فیک");
+      showPopup("به عنوان فیک علامت‌گذاری شد.");
+      refreshLiveStats();
+      refreshLiveFeed();
+      return;
+    }
+    const reportBanBtn = target.closest(".report-ban-btn");
+    if (reportBanBtn) {
+      const fd = new FormData();
+      fd.append("device_id", reportBanBtn.dataset.deviceId || "");
+      const res = await fetch("/admin/api/device-ban", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در بن");
+      showPopup("کاربر گزارش‌دهنده بن شد");
+      reportBanBtn.disabled = true;
+      refreshLiveStats();
+      return;
+    }
+  });
 
   setInterval(() => {
     const now = new Date();
@@ -301,7 +395,9 @@
     });
   }
 
-  document.querySelectorAll(".approve-form").forEach((form) => {
+  function bindApproveForm(form) {
+    if (!form || form.dataset.bound === "1") return;
+    form.dataset.bound = "1";
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const rid = form.dataset.requestId;
@@ -318,80 +414,13 @@
         const cells = row.querySelectorAll("td");
         if (cells[6]) cells[6].textContent = "تایید شده";
         if (cells[8]) cells[8].textContent = "-";
-      }
-    });
-  });
-
-  document.querySelectorAll(".reject-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const rid = btn.dataset.requestId;
-      const form = btn.closest("form");
-      const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
-      const reason = reasonInput ? reasonInput.value.trim() : "";
-      if (!reason) {
-        showPopup("دلیل رد را وارد کنید.");
-        return;
-      }
-      const fd = new FormData();
-      fd.append("reason", reason);
-      const res = await fetch(`/admin/api/requests/${rid}/reject`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showPopup(data.message || "خطا در رد درخواست");
-        return;
-      }
-      showPopup("رد شد");
-      const row = btn.closest("tr");
-      if (row) {
-        const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "تایید نشده";
-        if (cells[8]) cells[8].textContent = reason;
-      }
-    });
-  });
-
-  document.querySelectorAll(".fake-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const rid = btn.dataset.requestId;
-      const form = btn.closest("form");
-      const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
-      const reason = (reasonInput ? reasonInput.value.trim() : "") || "فیش نامعتبر تشخیص داده شد.";
-      const fd = new FormData();
-      fd.append("reason", reason);
-      const res = await fetch(`/admin/api/requests/${rid}/fake`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showPopup(data.message || "خطا در ثبت فیک");
-        return;
-      }
-      showPopup("به عنوان فیک علامت‌گذاری شد.");
-      const row = btn.closest("tr");
-      if (row) {
-        const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "تایید نشده | فیک";
-        if (cells[8]) cells[8].textContent = reason;
-      }
-    });
-  });
-
-  document.querySelectorAll(".reset-pending-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const rid = btn.dataset.requestId;
-      const res = await fetch(`/admin/api/requests/${rid}/reset-pending`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showPopup(data.message || "خطا در بازگشت به pending");
-        return;
-      }
-      showPopup("وضعیت به pending برگشت.");
-      const row = btn.closest("tr");
-      if (row) {
-        const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "در انتظار بررسی";
+        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
     });
-  });
+  }
+  document.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+
 
   document.querySelectorAll(".ban-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -425,22 +454,6 @@
     });
   });
 
-  document.querySelectorAll(".report-ban-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const fd = new FormData();
-      fd.append("device_id", btn.dataset.deviceId);
-      const res = await fetch("/admin/api/device-ban", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showPopup(data.message || "خطا در بن");
-        return;
-      }
-      showPopup("کاربر گزارش‌دهنده بن شد");
-      btn.disabled = true;
-      refreshLiveStats();
-    });
-  });
-
   document.querySelectorAll(".reply-form").forEach((form) => {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -463,8 +476,48 @@
         thread.appendChild(item);
       }
       refreshLiveStats();
+      setTimeout(() => window.location.reload(), 350);
     });
   });
+
+  async function refreshLiveFeed() {
+    if (!purchaseRowsBody && !reportRowsBody) return;
+    try {
+      const res = await fetch("/admin/api/live-feed");
+      const data = await res.json();
+      if (!res.ok || !data.ok) return;
+      if (purchaseRowsBody && Array.isArray(data.purchases)) {
+        purchaseRowsBody.innerHTML = data.purchases.map((r) => `
+          <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}">
+            <td>کاربر ${r.user_id || "-"}</td>
+            <td class="device-id">${escapeHtml(r.device_id)}</td>
+            <td>${escapeHtml(r.requested_category)}</td>
+            <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
+            <td>${escapeHtml(r.created_at_clock)}<br><span class="tiny-text">${escapeHtml(r.created_at_day)}</span></td>
+            <td><a href="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" target="_blank">مشاهده</a></td>
+            <td>${escapeHtml(r.status_label)}</td>
+            <td>${escapeHtml(r.user_note || "-")}</td>
+            <td>${escapeHtml(r.admin_note || "-")}</td>
+            <td>${r.status === "pending" ? renderPendingActions(r.id, r.requested_category) : renderResetAction(r.id)}</td>
+          </tr>
+        `).join("");
+        purchaseRowsBody.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+      }
+      if (reportRowsBody && Array.isArray(data.reports)) {
+        reportRowsBody.innerHTML = data.reports.map((rp) => `
+          <tr>
+            <td>${escapeHtml(rp.reporter_name)}</td>
+            <td class="device-id">${escapeHtml(rp.device_id)}</td>
+            <td>${escapeHtml(rp.report_type)}</td>
+            <td><div class="tiny-text">${escapeHtml(rp.last_sender)}: ${escapeHtml(rp.last_text)}</div><div class="tiny-text">${escapeHtml(rp.last_at_clock)}<br>${escapeHtml(rp.last_at_day)}</div></td>
+            <td class="tiny-text">${escapeHtml(rp.category_titles)}</td>
+            <td>${escapeHtml(rp.created_at_clock)}<br><span class="tiny-text">${escapeHtml(rp.created_at_day)}</span></td>
+            <td><a class="btn small" href="/admin/reports/${rp.id}">باز کردن تیکت</a> <button class="btn small btn-danger report-ban-btn" data-device-id="${escapeHtml(rp.device_id)}" type="button">بن</button></td>
+          </tr>
+        `).join("");
+      }
+    } catch (_err) {}
+  }
 
   if (statNodes.length > 0) {
     let primed = false;
@@ -524,6 +577,8 @@
       }
     };
     refreshLiveStats();
+    refreshLiveFeed();
     setInterval(refreshLiveStats, 1000);
+    setInterval(refreshLiveFeed, 1500);
   }
 })();

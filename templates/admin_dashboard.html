@@ -66,6 +66,68 @@
 </section>
 <br>
 <section class="table-wrap scroll-box">
+  <h2>جستجو کاربر</h2>
+  <form method="GET" class="form-card">
+    <label>مثال: کاربر 657</label>
+    <input name="q" value="{{ visitors_search }}" />
+    <button class="btn small" type="submit">اعمال</button>
+  </form>
+</section>
+<br>
+<section class="table-wrap scroll-box">
+  <h2>درخواست‌های خرید</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>کاربر</th>
+        <th>شناسه دستگاه</th>
+        <th>درخواست</th>
+        <th>اشتراک‌های فعال</th>
+        <th>زمان خرید (ایران)</th>
+        <th>فیش</th>
+        <th>وضعیت</th>
+        <th>توضیح کاربر</th>
+        <th>یادداشت ادمین</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody id="purchase-rows-body">
+      {% for r in requests_rows %}
+      <tr data-request-id="{{ r.id }}" data-requested-category="{{ r.requested_category|e }}">
+        <td>کاربر {{ r.user_id }}</td>
+        <td class="device-id">{{ r.device_id }}</td>
+        <td>{{ r.requested_category }}</td>
+        <td class="tiny-text">{{ r.category_titles }}</td>
+        <td>{{ r.created_at_clock }}<br><span class="tiny-text">{{ r.created_at_day }}</span></td>
+        <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
+        <td>{{ r.status_label }}</td>
+        <td>{{ r.user_note or "-" }}</td>
+        <td>{{ r.admin_note or "-" }}</td>
+        <td>
+          {% if r.status == 'pending' %}
+          <form class="approve-form" data-request-id="{{ r.id }}">
+            <div class="chips">
+              {% for c in categories %}
+                <label><input type="checkbox" name="category_ids" value="{{ c.id }}" {% if c.title == r.requested_category %}checked{% endif %} />{{ c.title }}</label>
+              {% endfor %}
+            </div>
+            <button class="btn small" type="submit">تایید</button>
+            <label>دلیل رد</label>
+            <textarea name="reject_reason" rows="2" placeholder="دلیل رد را بنویسید..."></textarea>
+            <button class="btn btn-danger small reject-btn" type="button" data-request-id="{{ r.id }}">رد</button>
+            <button class="btn small btn-ghost fake-btn" type="button" data-request-id="{{ r.id }}">فیک</button>
+          </form>
+          {% else %}
+            <button class="btn small reset-pending-btn" type="button" data-request-id="{{ r.id }}">برگشت به pending</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<br>
+<section class="table-wrap scroll-box">
   <h2>خلاصه کامل رفتار کاربرها</h2>
   <table>
     <thead><tr><th>کاربر</th><th>device_id</th><th>Browser</th><th>OS</th><th>وضعیت خرید</th><th>آخرین حضور</th><th>تعداد ورود</th><th>دسته‌های لایک‌شده</th><th>دسترسی‌ها</th><th>تعداد ریپورت</th><th>لینک</th></tr></thead>
@@ -132,68 +194,6 @@
   </article>
 </section>
 
-<section class="table-wrap scroll-box">
-  <h2>جستجو کاربر</h2>
-  <form method="GET" class="form-card">
-    <label>مثال: کاربر 657</label>
-    <input name="q" value="{{ visitors_search }}" />
-    <button class="btn small" type="submit">اعمال</button>
-  </form>
-</section>
-<br>
-<section class="table-wrap scroll-box">
-  <h2>درخواست‌های خرید</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>کاربر</th>
-        <th>شناسه دستگاه</th>
-        <th>درخواست</th>
-        <th>اشتراک‌های فعال</th>
-        <th>زمان خرید (ایران)</th>
-        <th>فیش</th>
-        <th>وضعیت</th>
-        <th>توضیح کاربر</th>
-        <th>یادداشت ادمین</th>
-        <th>عملیات</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in requests_rows %}
-      <tr>
-        <td>کاربر {{ r.user_id }}</td>
-        <td class="device-id">{{ r.device_id }}</td>
-        <td>{{ r.requested_category }}</td>
-        <td class="tiny-text">{{ r.category_titles }}</td>
-        <td>{{ r.created_at_clock }}<br><span class="tiny-text">{{ r.created_at_day }}</span></td>
-        <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
-        <td>{{ r.status_label }}</td>
-        <td>{{ r.user_note or "-" }}</td>
-        <td>{{ r.admin_note or "-" }}</td>
-        <td>
-          {% if r.status == 'pending' %}
-          <form class="approve-form" data-request-id="{{ r.id }}">
-            <div class="chips">
-              {% for c in categories %}
-                <label><input type="checkbox" name="category_ids" value="{{ c.id }}" {% if c.title == r.requested_category %}checked{% endif %} />{{ c.title }}</label>
-              {% endfor %}
-            </div>
-            <button class="btn small" type="submit">تایید</button>
-            <label>دلیل رد</label>
-            <textarea name="reject_reason" rows="2" placeholder="دلیل رد را بنویسید..."></textarea>
-            <button class="btn btn-danger small reject-btn" type="button" data-request-id="{{ r.id }}">رد</button>
-            <button class="btn small btn-ghost fake-btn" type="button" data-request-id="{{ r.id }}">فیک</button>
-          </form>
-          {% else %}
-            <button class="btn small reset-pending-btn" type="button" data-request-id="{{ r.id }}">برگشت به pending</button>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-<br>
 <section class="table-wrap scroll-box">
   <h2>لیست دسته‌بندی‌ها</h2>
   <table>
@@ -272,31 +272,24 @@
   <table>
     <thead>
       <tr>
-        <th>کاربر</th><th>شناسه دستگاه</th><th>دسته</th><th>تیکت</th><th>اشتراک‌ها</th><th>زمان (ایران)</th><th>عملیات</th>
+        <th>کاربر</th><th>شناسه دستگاه</th><th>موضوع</th><th>آخرین پیام</th><th>اشتراک‌ها</th><th>زمان (ایران)</th><th>عملیات</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="report-rows-body">
       {% for rp in reports %}
       <tr>
         <td>{{ rp.reporter_name or ('کاربر ' ~ (rp.user_id or '-')) }}</td>
         <td class="device-id">{{ rp.device_id }}</td>
         <td>{{ rp.report_type }}</td>
         <td>
-          <div class="ticket-thread">
-            {% for m in rp.messages %}
-            <div class="ticket-msg {% if m.sender == 'admin' %}ticket-admin{% else %}ticket-user{% endif %}">
-              <strong>{% if m.sender == 'admin' %}ادمین{% else %}کاربر{% endif %}</strong>: {{ m.text }} <span class="tiny-text">({{ m.at_clock }}<br>{{ m.at_day }})</span>
-            </div>
-            {% endfor %}
-          </div>
+          {% set lm = rp.messages[-1] if rp.messages else None %}
+          <div class="tiny-text">{% if lm %}{% if lm.sender == 'admin' %}ادمین{% else %}کاربر{% endif %}: {{ lm.text }}{% else %}-{% endif %}</div>
+          <div class="tiny-text">{% if lm %}{{ lm.at_clock }}<br>{{ lm.at_day }}{% endif %}</div>
         </td>
         <td class="tiny-text">{{ rp.category_titles }}</td>
         <td>{{ rp.created_at_clock }}<br><span class="tiny-text">{{ rp.created_at_day }}</span></td>
         <td>
-          <form class="reply-form" data-report-id="{{ rp.id }}">
-            <textarea name="reply_text" rows="2" placeholder="پاسخ ادمین..." required>{{ rp.admin_reply or '' }}</textarea>
-            <button class="btn small" type="submit">ثبت پاسخ</button>
-          </form>
+          <a class="btn small" href="/admin/reports/{{ rp.id }}">باز کردن تیکت</a>
           <button class="btn small btn-danger report-ban-btn" data-device-id="{{ rp.device_id }}" type="button">بن</button>
         </td>
       </tr>
@@ -307,9 +300,9 @@
 <br>
 
 <br>
-<section class="form-card">
+<section class="form-card settings-card">
   <h2>تنظیمات سیستم (DB)</h2>
-  <form id="settings-form">
+  <form id="settings-form" class="settings-grid">
     <label><input type="checkbox" name="site_update_mode" value="1" {% if site_update_mode %}checked{% endif %}/> حالت بروزرسانی</label>
     <label><input type="checkbox" name="site_domain_move_mode" value="1" {% if site_domain_move_mode %}checked{% endif %}/> حالت انتقال دامنه</label>
     <label>دامنه جدید</label>
