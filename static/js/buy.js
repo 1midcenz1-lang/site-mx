@@ -101,6 +101,9 @@
       clearTimeout(timer);
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        if (res.status === 403 && data && data.message) {
+          if (window.MX && window.MX.showPopup) window.MX.showPopup(data.message, "error");
+        }
         if (data && data.login_required) {
           const next = encodeURIComponent(window.location.pathname + window.location.search);
           window.location.href = `/login?next=${next}`;

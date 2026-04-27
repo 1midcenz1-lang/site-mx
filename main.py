@@ -201,6 +201,8 @@ def seed_mongo():
         "utc_adjust_hours": str(DEFAULT_UTC_ADJUST_HOURS),
         "max_devices_per_user": str(DEFAULT_MAX_DEVICES_PER_USER),
         "maintenance_fallback_url": "http://mxdomain.top:5000",
+        "purchase_enabled": "1",
+        "purchase_disabled_message": "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید.",
     }
     for k, v in defaults.items():
         mdb["app_settings"].update_one({"key": k}, {"$setOnInsert": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)
@@ -470,6 +472,8 @@ def submit_request():
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    if not setting_bool("purchase_enabled", True):
+        return jsonify({"ok": False, "message": get_setting("purchase_disabled_message", "فعلا خرید بسته است.")}), 403
     category = mdb["categories"].find_one({"id": int(cid)})
     if not category:
         return jsonify({"ok": False, "message": "دسته نامعتبر"}), 400
@@ -757,9 +761,9 @@ def admin_login():
 @admin_required
 def admin_dashboard():
     mdb = mongo_db()
-    base_stats = {"online_total": 0, "downloading_now": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
+    base_stats = {"online_total": 0, "online_ios": 0, "online_android": 0, "online_windows": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
     if mdb is None:
-        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_limit=300, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%H:%M"), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
     cat_by_id = {c["id"]: c for c in categories}
@@ -821,16 +825,20 @@ def admin_dashboard():
             "category_titles": t_category_titles,
         })
 
-    limit = max(50, min(1000, int(request.args.get("limit", "300") or 300)))
     q = (request.args.get("q") or "").strip()
     vf = {}
     if q:
-        code_devices = [x.get("device_id") for x in mdb["auth_user_devices"].find({"access_code": {"$regex": q, "$options": "i"}}, {"_id": 0, "device_id": 1}) if x.get("device_id")]
-        ors = [{"device_id": {"$regex": q, "$options": "i"}}, {"username": {"$regex": q, "$options": "i"}}, {"browser_name": {"$regex": q, "$options": "i"}}, {"os_name": {"$regex": q, "$options": "i"}}, {"device_model": {"$regex": q, "$options": "i"}}]
-        if code_devices:
-            ors.append({"device_id": {"$in": code_devices}})
-        vf = {"$or": ors}
-    visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(limit))
+        m = re.search(r"(\d+)", q)
+        if m:
+            uid = int(m.group(1))
+            user = mdb["users"].find_one({"id": uid}, {"_id": 0, "device_id": 1})
+            if user and user.get("device_id"):
+                vf = {"device_id": user.get("device_id")}
+            else:
+                vf = {"device_id": "__not_found__"}
+        else:
+            vf = {"device_id": {"$regex": q, "$options": "i"}}
+    visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(1500))
     code_by_device = {x.get("device_id"): x.get("access_code") for x in mdb["auth_user_devices"].find({}, {"_id": 0, "device_id": 1, "access_code": 1}) if x.get("device_id")}
     for v in visitors:
         if code_by_device.get(v.get("device_id")):
@@ -841,7 +849,19 @@ def admin_dashboard():
         devs = list(mdb["auth_user_devices"].find({"access_code": au.get("access_code")}, {"_id": 0, "last_seen_at": 1}))
         auth_users.append({**au, "device_count": len(devs), "last_device_seen": max([d.get("last_seen_at", "") for d in devs], default=None)})
 
-    online_by_page = {row.get("_id") or "unknown": int(row.get("count", 0)) for row in mdb["presence_sessions"].aggregate([{"$group": {"_id": "$page_key", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}, {"$limit": 20}])}
+    online_by_page = {}
+    for row in mdb["presence_sessions"].aggregate([{"$group": {"_id": "$page_key", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}, {"$limit": 20}]):
+        key = row.get("_id") or "unknown"
+        label = key
+        if key.startswith("/buy/"):
+            label = "صفحه خرید: " + key.replace("/buy/", "")
+        elif key == "/":
+            label = "صفحه اصلی"
+        elif key == "/my-videos":
+            label = "فایل‌های من"
+        elif key == "/messages":
+            label = "تیکت‌ها"
+        online_by_page[label] = int(row.get("count", 0))
     activity_rows = []
     for v in visitors:
         did = v.get("device_id")
@@ -859,7 +879,11 @@ def admin_dashboard():
                     access_titles.append(c.get("title"))
         report_count = mdb["reports"].count_documents({"device_id": did})
         activity_rows.append({
+            "user_id": user.get("id") if user else None,
             "device_id": did,
+            "browser_name": v.get("browser_name") or "-",
+            "os_name": v.get("os_name") or "-",
+            "last_seen_at": v.get("last_seen_at") or "-",
             "visit_count": int(v.get("visit_count", 0)),
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
@@ -875,7 +899,7 @@ def admin_dashboard():
         "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
     })
 
-    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_limit=limit, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%H:%M"), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."))
 
 
 @app.get("/admin/receipt/<path:filename>")
@@ -1154,10 +1178,28 @@ def admin_live_stats():
     y_end_dt = today_start_dt
     today_start, today_end = today_start_dt.isoformat(), today_end_dt.isoformat()
     y_start, y_end = y_start_dt.isoformat(), y_end_dt.isoformat()
+    online_devices = list(mdb["presence_sessions"].find({"updated_at": {"$gte": online_since}}, {"_id": 0, "device_id": 1}))
+    os_counts = {"ios": 0, "android": 0, "windows": 0}
+    seen = set()
+    for row in online_devices:
+        did = row.get("device_id")
+        if not did or did in seen:
+            continue
+        seen.add(did)
+        vis = mdb["visitors"].find_one({"device_id": did}, {"_id": 0, "os_name": 1})
+        os_name = (vis or {}).get("os_name", "").lower()
+        if "ios" in os_name:
+            os_counts["ios"] += 1
+        elif "android" in os_name:
+            os_counts["android"] += 1
+        elif "windows" in os_name:
+            os_counts["windows"] += 1
     stats = {
         "online_total": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}}),
         "active_last_minute": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": active_since}}),
-        "downloading_now": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}, "page_key": {"$regex": "buy|my-videos|watch"}}),
+        "online_ios": os_counts["ios"],
+        "online_android": os_counts["android"],
+        "online_windows": os_counts["windows"],
         "total_reports": mdb["reports"].count_documents({}),
         "total_visitors": mdb["visitors"].count_documents({}),
         "total_purchases": mdb["purchase_requests"].count_documents({}),
@@ -1175,9 +1217,11 @@ def admin_live_stats():
     }
     latest_purchase = mdb["purchase_requests"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
     latest_report = mdb["reports"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
+    latest_testimonial = mdb["testimonials"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
     stats["latest_purchase_id"] = int((latest_purchase or {}).get("id") or 0)
     stats["latest_report_id"] = int((latest_report or {}).get("id") or 0)
-    stats["server_now"] = datetime.now(TEHRAN_TZ).isoformat()
+    stats["latest_testimonial_id"] = int((latest_testimonial or {}).get("id") or 0)
+    stats["server_now"] = datetime.now(TEHRAN_TZ).strftime("%H:%M:%S")
     stats["server_day"] = datetime.now(TEHRAN_TZ).strftime("%A")
 
     pipeline = [
@@ -1185,7 +1229,19 @@ def admin_live_stats():
         {"$group": {"_id": "$page_key", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
-    online_by_page = {row.get("_id") or "unknown": int(row.get("count", 0)) for row in mdb["presence_sessions"].aggregate(pipeline)}
+    online_by_page = {}
+    for row in mdb["presence_sessions"].aggregate(pipeline):
+        key = row.get("_id") or "unknown"
+        label = key
+        if key.startswith("/buy/"):
+            label = "صفحه خرید: " + key.replace("/buy/", "")
+        elif key == "/":
+            label = "صفحه اصلی"
+        elif key == "/my-videos":
+            label = "فایل‌های من"
+        elif key == "/messages":
+            label = "تیکت‌ها"
+        online_by_page[label] = int(row.get("count", 0))
     return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page, "mongo_ok": True})
 
 
@@ -1202,6 +1258,8 @@ def admin_update_settings():
         "maintenance_fallback_url": (request.form.get("maintenance_fallback_url") or "http://mxdomain.top:5000").strip(),
         "utc_adjust_hours": str(int(request.form.get("utc_adjust_hours") or DEFAULT_UTC_ADJUST_HOURS)),
         "max_devices_per_user": str(max(1, min(10, int(request.form.get("max_devices_per_user") or DEFAULT_MAX_DEVICES_PER_USER)))),
+        "purchase_enabled": "1" if request.form.get("purchase_enabled") == "1" else "0",
+        "purchase_disabled_message": (request.form.get("purchase_disabled_message") or "").strip() or "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید.",
     }
     for k, v in updates.items():
         mdb["app_settings"].update_one({"key": k}, {"$set": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)

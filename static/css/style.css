@@ -232,6 +232,7 @@ th { background: rgba(30, 41, 59, 0.75); }
   padding: 12px;
   background: rgba(15, 23, 42, 0.72);
   scroll-snap-align: start;
+  animation: testimonialGlow 2.8s ease-in-out infinite alternate;
 }
 .testimonial-card h4 {
   margin: 0 0 8px;
@@ -370,6 +371,33 @@ th { background: rgba(30, 41, 59, 0.75); }
 }
 .ticket-admin {
   background: rgba(16, 185, 129, 0.16);
+}
+@keyframes testimonialGlow {
+  from { box-shadow: 0 0 0 rgba(6,182,212,0.0); transform: translateY(0); }
+  to { box-shadow: 0 0 24px rgba(6,182,212,0.35); transform: translateY(-2px); }
+}
+.fx-burst {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 1400;
+}
+.fx-burst span {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  transform: translate(0, 0);
+  animation: burst 1s ease-out forwards;
+}
+@keyframes burst {
+  to {
+    transform: translate(var(--x), var(--y)) rotate(320deg);
+    opacity: 0;
+  }
 }
 
 .status-page {

@@ -13,7 +13,7 @@
   </div>
 </section>
 
-<section class="table-wrap">
+<section id="survey" class="table-wrap">
   <h2>دسته‌بندی‌های قابل مشاهده</h2>
   {% if categories %}
   <div class="cards">
@@ -139,6 +139,19 @@
       }
       requestAnimationFrame(frame);
     }
+    function burstFx() {
+      const fx = document.createElement("div");
+      fx.className = "fx-burst";
+      for (let i = 0; i < 24; i += 1) {
+        const p = document.createElement("span");
+        p.style.setProperty("--x", `${(Math.random() * 320) - 160}px`);
+        p.style.setProperty("--y", `${(Math.random() * -180) - 30}px`);
+        p.style.background = `hsl(${Math.floor(Math.random() * 360)} 100% 60%)`;
+        fx.appendChild(p);
+      }
+      document.body.appendChild(fx);
+      setTimeout(() => fx.remove(), 1200);
+    }
 
     async function refreshPublicStats() {
       if (!counterEl) return;
@@ -151,6 +164,7 @@
         if (next !== prev) {
           animateCounter(prev, next);
           counterEl.dataset.count = String(next);
+          burstFx();
         }
       } catch (_err) {
         // silent

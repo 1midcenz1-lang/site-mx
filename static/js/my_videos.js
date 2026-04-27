@@ -62,6 +62,31 @@
     document.body.appendChild(backdrop);
   }
 
+  function showSurveyBoostPopup() {
+    const key = `mx_survey_boost_${deviceId}`;
+    if (localStorage.getItem(key) === "1") return;
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>🎁 دسترسی طولانی‌تر</h3>
+        <p>با ثبت نظر، شانس تمدید بیشتر دسترسی فایل‌ها را دارید.</p>
+        <button class="btn" id="go-survey-btn" type="button">بریم نظر بدیم</button>
+      </div>
+    `;
+    backdrop.querySelector("#go-survey-btn")?.addEventListener("click", () => {
+      localStorage.setItem(key, "1");
+      window.location.href = "/#survey";
+    });
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) {
+        localStorage.setItem(key, "1");
+        backdrop.remove();
+      }
+    });
+    document.body.appendChild(backdrop);
+  }
+
   async function loadVideos() {
     listBox.innerHTML = "";
     approvedText.classList.remove("error");
@@ -88,6 +113,7 @@
         return;
       }
       renderZipTutorials();
+      showSurveyBoostPopup();
 
       data.categories.forEach((cat) => {
         const wrapper = document.createElement("details");

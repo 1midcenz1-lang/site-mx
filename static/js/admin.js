@@ -9,9 +9,13 @@
   const onlineByPageBody = document.getElementById("online-by-page-body");
   const settingsForm = document.getElementById("settings-form");
   const backupAllBtn = document.getElementById("download-all-backup-btn");
+  const unseenBanner = document.getElementById("admin-unseen-banner");
+  const unseenText = document.getElementById("admin-unseen-text");
+  const liveToast = document.getElementById("admin-live-toast");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
+  let lastTestimonialId = 0;
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
 
@@ -40,6 +44,14 @@
     el.textContent = String(value);
   }
 
+  setInterval(() => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    setStat("server_now", `${hh}:${mm}:${ss}`);
+  }, 1000);
+
   function notifyAdmin(title, body) {
     if (!notificationsEnabled) return;
     if (!("Notification" in window)) return;
@@ -54,6 +66,13 @@
         }
       });
     }
+  }
+
+  function showLiveToast(text) {
+    if (!liveToast) return;
+    liveToast.innerHTML = `<div class="modal-card">${text}</div>`;
+    liveToast.classList.remove("hidden");
+    setTimeout(() => liveToast.classList.add("hidden"), 3500);
   }
 
   function renderNotifToggle() {
@@ -422,19 +441,40 @@
         });
         const latestPurchase = Number(stats.latest_purchase_id || 0);
         const latestReport = Number(stats.latest_report_id || 0);
+        const latestTestimonial = Number(stats.latest_testimonial_id || 0);
         if (!primed) {
           lastPurchaseId = latestPurchase;
           lastReportId = latestReport;
+          lastTestimonialId = latestTestimonial;
           primed = true;
           return;
         }
-        if (latestPurchase > lastPurchaseId) {
-          notifyAdmin("درخواست خرید جدید", `${latestPurchase - lastPurchaseId} خرید جدید ثبت شد.`);
+        const unseenPurchase = Math.max(0, latestPurchase - lastPurchaseId);
+        const unseenReport = Math.max(0, latestReport - lastReportId);
+        const unseenTestimonial = Math.max(0, latestTestimonial - lastTestimonialId);
+        if (unseenPurchase > 0) {
+          notifyAdmin("درخواست خرید جدید", `${unseenPurchase} خرید جدید ثبت شد.`);
+          showLiveToast("🛒 خرید جدید ثبت شد");
           lastPurchaseId = latestPurchase;
         }
-        if (latestReport > lastReportId) {
-          notifyAdmin("ریپورت جدید", `${latestReport - lastReportId} ریپورت جدید ثبت شد.`);
+        if (unseenReport > 0) {
+          notifyAdmin("ریپورت جدید", `${unseenReport} ریپورت جدید ثبت شد.`);
+          showLiveToast("📩 ریپورت جدید ثبت شد");
           lastReportId = latestReport;
+        }
+        if (unseenTestimonial > 0) {
+          notifyAdmin("نظر جدید", `${unseenTestimonial} نظر جدید ثبت شد.`);
+          showLiveToast("💬 نظر جدید ثبت شد");
+          lastTestimonialId = latestTestimonial;
+        }
+        const totalUnseen = unseenPurchase + unseenReport + unseenTestimonial;
+        if (unseenBanner && unseenText) {
+          if (totalUnseen > 0) {
+            unseenBanner.classList.remove("hidden");
+            unseenText.textContent = `خرید: ${unseenPurchase} | ریپورت: ${unseenReport} | نظر: ${unseenTestimonial}`;
+          } else {
+            unseenBanner.classList.add("hidden");
+          }
         }
         if (onlineByPageBody && data.online_by_page) {
           const rows = Object.entries(data.online_by_page)
@@ -447,6 +487,6 @@
       }
     };
     refreshLiveStats();
-    setInterval(refreshLiveStats, 5000);
+    setInterval(refreshLiveStats, 1000);
   }
 })();

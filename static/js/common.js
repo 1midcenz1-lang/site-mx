@@ -28,6 +28,10 @@
     return isiPhoneUA || isiPadAsMac;
   }
 
+  function isChromeOnIOS() {
+    return /CriOS/i.test(navigator.userAgent || "");
+  }
+
   function hash32(input) {
     let h = 2166136261;
     for (let i = 0; i < input.length; i += 1) {
@@ -55,16 +59,16 @@
   }
 
   function showIphoneCompassAlert() {
-    if (!isIPhone()) return;
-    showPopup("برای آیفون روی آیکون 🧭 (قطب‌نما) بزنید و لینک را با Chrome یا Safari باز کنید.");
+    if (!isIPhone() || isChromeOnIOS()) return;
+    showPopup("برای آیفون روی این آیکون بزنید: <img src='/icon' onerror=\"this.src='/static/icon.png'\" alt='icon' style='width:26px;height:26px;vertical-align:middle;border-radius:6px;margin:0 6px;'/> و لینک را با Chrome یا Safari باز کنید.");
   }
 
   function attachIphoneBuyAlerts() {
-    if (!isIPhone()) return;
+    if (!isIPhone() || isChromeOnIOS()) return;
     const buyLinks = document.querySelectorAll("a[href^='/buy/']");
     buyLinks.forEach((link) => {
       link.addEventListener("click", () => {
-        showPopup("برای آیفون: قبل از خرید روی آیکون 🧭 بزنید و با Chrome یا Safari ادامه بدید.");
+        showPopup("برای آیفون: قبل از خرید روی این آیکون بزنید <img src='/icon' onerror=\"this.src='/static/icon.png'\" alt='icon' style='width:26px;height:26px;vertical-align:middle;border-radius:6px;margin:0 6px;'/> و با Chrome یا Safari ادامه بدید.");
       });
     });
   }
