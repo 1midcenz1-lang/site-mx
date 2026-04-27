@@ -138,7 +138,7 @@
         <td class="tiny-text">{{ a.liked_titles }}</td>
         <td class="tiny-text">{{ a.access_titles }}</td>
         <td>{{ a.report_count }}</td>
-        <td><a href="{{ a.detail_link }}">مشاهده جزئیات</a></td>
+        <td><a href="{{ url_for('admin_user_activity', device_id=a.device_id) }}">مشاهده جزئیات</a></td>
       </tr>
       {% endfor %}
     </tbody>

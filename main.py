@@ -2,11 +2,11 @@
 import re
 import secrets
 import string
-import tempfile
 import uuid
 import zipfile
 from datetime import datetime, timedelta
 from functools import wraps
+from io import BytesIO
 from urllib import request as urllib_request
 from zoneinfo import ZoneInfo
 
@@ -1018,7 +1018,6 @@ def admin_dashboard():
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
             "report_count": report_count,
-            "detail_link": f"/admin/user-activity/{did}",
         })
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
@@ -1398,22 +1397,20 @@ def admin_backup_all():
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
     import json
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        db_file = os.path.join(tmp_dir, "mongo_backup.json")
-        payload = {}
-        for name in ["app_settings", "categories", "videos", "users", "purchase_requests", "reports", "visitors", "testimonials", "auth_users", "auth_user_devices", "user_access", "presence_sessions"]:
-            payload[name] = list(mdb[name].find({}, {"_id": 0}))
-        with open(db_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+    payload = {}
+    for name in ["app_settings", "categories", "videos", "users", "purchase_requests", "reports", "visitors", "testimonials", "auth_users", "auth_user_devices", "user_access", "presence_sessions"]:
+        payload[name] = list(mdb[name].find({}, {"_id": 0}))
 
-        out_zip = os.path.join(tmp_dir, "site_mx_backup_bundle.zip")
-        with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.write(db_file, arcname="mongo_backup.json")
-            for name in os.listdir(RECEIPTS_DIR):
-                full = os.path.join(RECEIPTS_DIR, name)
-                if os.path.isfile(full):
-                    zf.write(full, arcname=f"receipts/{name}")
-        return send_file(out_zip, as_attachment=True, download_name="site_mx_backup_bundle.zip")
+    db_json = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    bundle_bytes = BytesIO()
+    with zipfile.ZipFile(bundle_bytes, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mongo_backup.json", db_json)
+        for name in os.listdir(RECEIPTS_DIR):
+            full = os.path.join(RECEIPTS_DIR, name)
+            if os.path.isfile(full):
+                zf.write(full, arcname=f"receipts/{name}")
+    bundle_bytes.seek(0)
+    return send_file(bundle_bytes, as_attachment=True, download_name="site_mx_backup_bundle.zip", mimetype="application/zip")
 
 
 @app.get("/admin/api/live-stats")

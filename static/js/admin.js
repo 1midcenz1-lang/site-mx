@@ -92,6 +92,18 @@
     return matched;
   }
 
+  function normalizeDigits(value) {
+    const fa = "۰۱۲۳۴۵۶۷۸۹";
+    const ar = "٠١٢٣٤٥٦٧٨٩";
+    return String(value || "").replace(/[۰-۹٠-٩]/g, (ch) => {
+      const faIdx = fa.indexOf(ch);
+      if (faIdx >= 0) return String(faIdx);
+      const arIdx = ar.indexOf(ch);
+      if (arIdx >= 0) return String(arIdx);
+      return ch;
+    });
+  }
+
   function statusBadge(text) {
     const value = String(text || "").trim();
     if (value.includes("فیک")) return `<span class="status-pill status-pill-fake">🟧 ${escapeHtml(value)}</span>`;
@@ -292,7 +304,7 @@
   if (userSearchForm && userSearchInput) {
     userSearchForm.addEventListener("submit", (evt) => {
       evt.preventDefault();
-      const value = (userSearchInput.value || "").trim();
+      const value = normalizeDigits((userSearchInput.value || "").trim());
       const match = value.match(/(\d+)/);
       if (!match) return showPopup("شماره کاربر را درست وارد کنید. مثال: کاربر 5");
       const userId = Number(match[1]);
