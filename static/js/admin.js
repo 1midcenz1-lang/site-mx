@@ -16,6 +16,9 @@
   let lastPurchaseId = 0;
   let lastReportId = 0;
   let lastTestimonialId = 0;
+  let unseenPurchaseCount = Number(localStorage.getItem("mx_unseen_purchase") || "0");
+  let unseenReportCount = Number(localStorage.getItem("mx_unseen_report") || "0");
+  let unseenTestimonialCount = Number(localStorage.getItem("mx_unseen_testimonial") || "0");
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
 
@@ -46,10 +49,12 @@
 
   setInterval(() => {
     const now = new Date();
-    const hh = String(now.getHours()).padStart(2, "0");
+    const hh = String(((now.getHours() + 11) % 12) + 1);
     const mm = String(now.getMinutes()).padStart(2, "0");
     const ss = String(now.getSeconds()).padStart(2, "0");
-    setStat("server_now", `${hh}:${mm}:${ss}`);
+    const ampm = now.getHours() >= 12 ? "PM" : "AM";
+    setStat("server_now", `${hh}:${mm}:${ss} ${ampm}`);
+    setStat("server_day", `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}`);
   }, 1000);
 
   function notifyAdmin(title, body) {
@@ -72,8 +77,20 @@
     if (!liveToast) return;
     liveToast.innerHTML = `<div class="modal-card">${text}</div>`;
     liveToast.classList.remove("hidden");
-    setTimeout(() => liveToast.classList.add("hidden"), 3500);
+    setTimeout(() => liveToast.classList.add("hidden"), 3000);
   }
+
+  function renderUnseenBanner() {
+    const totalUnseen = unseenPurchaseCount + unseenReportCount + unseenTestimonialCount;
+    if (!unseenBanner || !unseenText) return;
+    if (totalUnseen > 0) {
+      unseenBanner.classList.remove("hidden");
+      unseenText.textContent = `خرید: ${unseenPurchaseCount} | ریپورت: ${unseenReportCount} | نظر: ${unseenTestimonialCount}`;
+    } else {
+      unseenBanner.classList.add("hidden");
+    }
+  }
+  renderUnseenBanner();
 
   function renderNotifToggle() {
     if (!notifToggleBtn) return;
@@ -456,26 +473,24 @@
           notifyAdmin("درخواست خرید جدید", `${unseenPurchase} خرید جدید ثبت شد.`);
           showLiveToast("🛒 خرید جدید ثبت شد");
           lastPurchaseId = latestPurchase;
+          unseenPurchaseCount += unseenPurchase;
+          localStorage.setItem("mx_unseen_purchase", String(unseenPurchaseCount));
         }
         if (unseenReport > 0) {
           notifyAdmin("ریپورت جدید", `${unseenReport} ریپورت جدید ثبت شد.`);
           showLiveToast("📩 ریپورت جدید ثبت شد");
           lastReportId = latestReport;
+          unseenReportCount += unseenReport;
+          localStorage.setItem("mx_unseen_report", String(unseenReportCount));
         }
         if (unseenTestimonial > 0) {
           notifyAdmin("نظر جدید", `${unseenTestimonial} نظر جدید ثبت شد.`);
           showLiveToast("💬 نظر جدید ثبت شد");
           lastTestimonialId = latestTestimonial;
+          unseenTestimonialCount += unseenTestimonial;
+          localStorage.setItem("mx_unseen_testimonial", String(unseenTestimonialCount));
         }
-        const totalUnseen = unseenPurchase + unseenReport + unseenTestimonial;
-        if (unseenBanner && unseenText) {
-          if (totalUnseen > 0) {
-            unseenBanner.classList.remove("hidden");
-            unseenText.textContent = `خرید: ${unseenPurchase} | ریپورت: ${unseenReport} | نظر: ${unseenTestimonial}`;
-          } else {
-            unseenBanner.classList.add("hidden");
-          }
-        }
+        renderUnseenBanner();
         if (onlineByPageBody && data.online_by_page) {
           const rows = Object.entries(data.online_by_page)
             .map(([page, count]) => `<tr><td>${page}</td><td>${count}</td></tr>`)

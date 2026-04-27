@@ -763,7 +763,7 @@ def admin_dashboard():
     mdb = mongo_db()
     base_stats = {"online_total": 0, "online_ios": 0, "online_android": 0, "online_windows": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
     if mdb is None:
-        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%H:%M"), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."))
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
     cat_by_id = {c["id"]: c for c in categories}
@@ -899,7 +899,7 @@ def admin_dashboard():
         "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
     })
 
-    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%H:%M"), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."))
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."))
 
 
 @app.get("/admin/receipt/<path:filename>")
@@ -1221,8 +1221,8 @@ def admin_live_stats():
     stats["latest_purchase_id"] = int((latest_purchase or {}).get("id") or 0)
     stats["latest_report_id"] = int((latest_report or {}).get("id") or 0)
     stats["latest_testimonial_id"] = int((latest_testimonial or {}).get("id") or 0)
-    stats["server_now"] = datetime.now(TEHRAN_TZ).strftime("%H:%M:%S")
-    stats["server_day"] = datetime.now(TEHRAN_TZ).strftime("%A")
+    stats["server_now"] = datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p")
+    stats["server_day"] = datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y")
 
     pipeline = [
         {"$match": {"updated_at": {"$gte": online_since}}},

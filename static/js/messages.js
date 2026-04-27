@@ -10,6 +10,15 @@
     return;
   }
 
+  function fmtTime(v) {
+    if (!v) return "-";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return v;
+    const t = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    const dt = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    return `${t} | ${dt}`;
+  }
+
   async function loadMessages() {
     try {
       const res = await fetch(`/api/my-report-replies?device_id=${encodeURIComponent(deviceId)}`);
@@ -27,7 +36,7 @@
           const card = document.createElement("details");
           card.className = "accordion-item";
           const summary = document.createElement("summary");
-          summary.textContent = `تیکت #${item.id} | ${item.report_type} | ${item.created_at}`;
+          summary.textContent = `تیکت #${item.id} | ${item.report_type} | ${fmtTime(item.created_at)}`;
           card.appendChild(summary);
           const body = document.createElement("div");
           body.className = "card";
@@ -35,7 +44,7 @@
             ? item.messages
             : [{ sender: "user", text: item.report_text, at: item.created_at }];
           body.innerHTML = messages
-            .map((m) => `<p><strong>${m.sender === "admin" ? "ادمین" : "شما"}:</strong> ${m.text} <span class='tiny-text'>(${m.at || "-"})</span></p>`)
+            .map((m) => `<p><strong>${m.sender === "admin" ? "ادمین" : "شما"}:</strong> ${m.text} <span class='tiny-text'>(${fmtTime(m.at)})</span></p>`)
             .join("");
           const form = document.createElement("form");
           form.className = "ticket-reply-form";

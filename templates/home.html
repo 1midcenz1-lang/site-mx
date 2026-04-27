@@ -116,6 +116,11 @@
             if (data.liked) liked.add(String(id));
             else liked.delete(String(id));
             renderCard(card, data.liked, data.count || 0);
+            const fx = document.createElement("span");
+            fx.className = "like-burst";
+            fx.textContent = data.liked ? "💖" : "✨";
+            btn.appendChild(fx);
+            setTimeout(() => fx.remove(), 850);
           })
           .finally(() => {
             inFlight = false;
@@ -134,7 +139,7 @@
       function frame(now) {
         const progress = Math.min(1, (now - startAt) / duration);
         const current = Math.round(start + ((end - start) * progress));
-        counterEl.textContent = current.toLocaleString("fa-IR");
+        counterEl.textContent = String(current);
         if (progress < 1) requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
