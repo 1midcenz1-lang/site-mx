@@ -6,8 +6,11 @@
     return isiPhoneUA || isiPadAsMac;
   }
 
-  function isChromeOnIOS() {
-    return /CriOS/i.test(navigator.userAgent || "");
+  function isSupportedIOSBrowser() {
+    const ua = navigator.userAgent || "";
+    const isChrome = /CriOS/i.test(ua);
+    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+    return isChrome || isSafari;
   }
 
   function hash32(input) {
@@ -36,14 +39,13 @@
     return `mx-${hash32(parts.join("|"))}`;
   }
 
-  function enforceIPhoneChrome() {
-    if (!isIPhone() || isChromeOnIOS()) return;
+  function enforceIOSBrowserSupport() {
+    if (!isIPhone() || isSupportedIOSBrowser()) return;
     if (window.location.pathname === "/iphone-chrome-required") return;
     const current = window.location.href;
     const encoded = encodeURIComponent(current);
-    const deepLink = `googlechrome://navigate?url=${encoded}`;
     const fallback = `/iphone-chrome-required?next=${encoded}`;
-    window.location.replace(fallback + `&open=${encodeURIComponent(deepLink)}`);
+    window.location.replace(fallback);
   }
 
   function initDevice() {
@@ -82,7 +84,7 @@
   }
 
   async function setup() {
-    enforceIPhoneChrome();
+    enforceIOSBrowserSupport();
     const onboard = initDevice();
     const deviceId = onboard.deviceId;
 

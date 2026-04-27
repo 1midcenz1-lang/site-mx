@@ -319,6 +319,41 @@ th { background: rgba(30, 41, 59, 0.75); }
   transform: rotate(-90deg);
 }
 
+.purchase-counter {
+  margin: 0 0 18px;
+}
+.counter-glow {
+  background: linear-gradient(140deg, rgba(124, 58, 237, 0.3), rgba(6, 182, 212, 0.25));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px;
+  text-align: center;
+  box-shadow: 0 12px 35px rgba(6, 182, 212, 0.2), 0 12px 35px rgba(124, 58, 237, 0.2);
+}
+.counter-glow p {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+.counter-glow strong {
+  display: block;
+  font-size: clamp(28px, 5vw, 46px);
+  letter-spacing: 1px;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(6, 182, 212, 0.55);
+}
+.counter-glow small {
+  color: #c7d2fe;
+}
+.tutorial-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+.tutorial-card h3 {
+  margin-top: 0;
+}
+
 .status-page {
   width: min(100%, 760px);
   margin: 38px auto;
