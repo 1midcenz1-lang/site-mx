@@ -129,7 +129,7 @@ def get_mongo_client():
     db_name = os.environ.get("MONGO_DB_NAME", "").strip()
     try:
         pymongo_mod = __import__("pymongo")
-        client = pymongo_mod.MongoClient(uri, serverSelectionTimeoutMS=4000, connectTimeoutMS=4000)
+        client = pymongo_mod.MongoClient(uri, serverSelectionTimeoutMS=8000, connectTimeoutMS=8000)
         client.admin.command("ping")
         if not db_name:
             parsed = uri.rsplit("/", 1)[-1].split("?", 1)[0].strip()
