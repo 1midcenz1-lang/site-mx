@@ -866,6 +866,7 @@ def admin_dashboard():
 
     reports = []
     for rp in mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(300):
+        rp = dict(rp or {})
         user_id = rp.get("user_id")
         category_titles = []
         if user_id:
@@ -874,9 +875,22 @@ def admin_dashboard():
                 if c:
                     category_titles.append(c.get("title"))
         rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
-        if not rp.get("messages"):
-            seed_text = rp.get("report_text") or ""
-            rp["messages"] = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
+        raw_messages = rp.get("messages") or []
+        normalized_messages = []
+        if isinstance(raw_messages, list):
+            for m in raw_messages:
+                if isinstance(m, dict):
+                    normalized_messages.append({
+                        "sender": m.get("sender") or "user",
+                        "text": str(m.get("text") or ""),
+                        "at": m.get("at"),
+                    })
+                elif isinstance(m, str) and m.strip():
+                    normalized_messages.append({"sender": "user", "text": m.strip(), "at": rp.get("created_at")})
+        if not normalized_messages:
+            seed_text = (rp.get("report_text") or "").strip()
+            normalized_messages = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
+        rp["messages"] = normalized_messages
         rp["created_at_clock"] = format_clock(rp.get("created_at"))
         rp["created_at_day"] = format_day(rp.get("created_at"))
         for msg in rp["messages"]:
