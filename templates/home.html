@@ -5,8 +5,15 @@
   <h1>دریافت اشتراک فایل‌ها</h1>
   <p>دسته‌بندی دلخواهت را انتخاب کن و برای دریافت فایل این دسته‌بندی درخواست ثبت کن.</p>
 </section>
+<section class="purchase-counter">
+  <div class="counter-glow">
+    <p>🔥 تعداد خریدهای کل سایت</p>
+    <strong id="total-purchase-counter" data-count="{{ total_purchases }}">{{ total_purchases }}</strong>
+    <small>این عدد به‌صورت لحظه‌ای آپدیت می‌شود.</small>
+  </div>
+</section>
 
-<section class="table-wrap">
+<section id="survey" class="table-wrap">
   <h2>دسته‌بندی‌های قابل مشاهده</h2>
   {% if categories %}
   <div class="cards">
@@ -109,6 +116,11 @@
             if (data.liked) liked.add(String(id));
             else liked.delete(String(id));
             renderCard(card, data.liked, data.count || 0);
+            const fx = document.createElement("span");
+            fx.className = "like-burst";
+            fx.textContent = data.liked ? "💖" : "✨";
+            btn.appendChild(fx);
+            setTimeout(() => fx.remove(), 850);
           })
           .finally(() => {
             inFlight = false;
@@ -116,6 +128,54 @@
       });
     });
     loadLikes();
+
+    const counterEl = document.getElementById("total-purchase-counter");
+    function animateCounter(from, to) {
+      if (!counterEl) return;
+      const start = Number(from || 0);
+      const end = Number(to || 0);
+      const duration = 700;
+      const startAt = performance.now();
+      function frame(now) {
+        const progress = Math.min(1, (now - startAt) / duration);
+        const current = Math.round(start + ((end - start) * progress));
+        counterEl.textContent = String(current);
+        if (progress < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+    function burstFx() {
+      const fx = document.createElement("div");
+      fx.className = "fx-burst";
+      for (let i = 0; i < 24; i += 1) {
+        const p = document.createElement("span");
+        p.style.setProperty("--x", `${(Math.random() * 320) - 160}px`);
+        p.style.setProperty("--y", `${(Math.random() * -180) - 30}px`);
+        p.style.background = `hsl(${Math.floor(Math.random() * 360)} 100% 60%)`;
+        fx.appendChild(p);
+      }
+      document.body.appendChild(fx);
+      setTimeout(() => fx.remove(), 1200);
+    }
+
+    async function refreshPublicStats() {
+      if (!counterEl) return;
+      try {
+        const res = await fetch("/api/public-stats");
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const prev = Number(counterEl.dataset.count || 0);
+        const next = Number(data.total_purchases || 0);
+        if (next !== prev) {
+          animateCounter(prev, next);
+          counterEl.dataset.count = String(next);
+          burstFx();
+        }
+      } catch (_err) {
+        // silent
+      }
+    }
+    setInterval(refreshPublicStats, 8000);
   })();
 </script>
 {% endblock %}
