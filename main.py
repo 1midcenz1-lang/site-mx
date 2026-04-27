@@ -77,6 +77,43 @@ def now_iso() -> str:
     return datetime.utcnow().isoformat()
 
 
+def format_clock(iso_value: str | None) -> str:
+    if not iso_value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        local_dt = dt.astimezone(TEHRAN_TZ)
+        return local_dt.strftime("%I:%M:%S %p")
+    except Exception:
+        return str(iso_value)
+
+
+def format_day(iso_value: str | None) -> str:
+    if not iso_value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        local_dt = dt.astimezone(TEHRAN_TZ)
+        return local_dt.strftime("%m/%d/%Y")
+    except Exception:
+        return "-"
+
+
+def purchase_status_label(status: str | None, is_fake: bool = False) -> str:
+    status_map = {
+        "approved": "تایید شده",
+        "rejected": "تایید نشده",
+        "pending": "در انتظار بررسی",
+        "fake": "تایید نشده",
+    }
+    base = status_map.get((status or "").strip(), "نامشخص")
+    return f"{base} | فیک" if is_fake else base
+
+
 def human_size(size_bytes: int | None) -> str:
     if not size_bytes or size_bytes <= 0:
         return "-"
@@ -346,6 +383,15 @@ def modes():
         if path.startswith("/api/"):
             return jsonify({"ok": False, "message": "سایت منتقل شده", "target_url": target}), 503
         return redirect(url_for("site_domain_move_page"))
+    did = (request.cookies.get("mx_device_id") or "").strip()
+    if did and path not in {"/site-down", "/messages", "/api/report", "/api/my-report-replies", "/api/my-report-replies/mark-seen"}:
+        mdb = mongo_db()
+        if mdb is not None:
+            v = mdb["visitors"].find_one({"device_id": did}, {"_id": 0, "is_banned": 1})
+            if v and int(v.get("is_banned", 0)) == 1:
+                if path.startswith("/api/"):
+                    return jsonify({"ok": False, "message": "سایت از دسترس خارج شده"}), 503
+                return redirect(url_for("site_down_page"))
     return None
 
 
@@ -353,7 +399,7 @@ def modes():
 def home():
     mdb = mongo_db()
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1)) if mdb is not None else []
-    total_purchases = mdb["purchase_requests"].count_documents({}) if mdb is not None else 0
+    total_purchases = mdb["user_access"].count_documents({}) if mdb is not None else 0
     testimonials = []
     if mdb is not None:
         cat_by_id = {c["id"]: c for c in categories}
@@ -751,6 +797,11 @@ def site_domain_move_page():
     return render_template("site_domain_moved.html", target_url=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET))
 
 
+@app.route("/site-down")
+def site_down_page():
+    return render_template("site_down.html")
+
+
 @app.route("/iphone-chrome-required")
 def iphone_chrome_required_page():
     next_url = request.args.get("next", "/")
@@ -776,6 +827,9 @@ def admin_dashboard():
         return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
+    active_per_category = {row["_id"]: int(row.get("count", 0)) for row in mdb["user_access"].aggregate([{"$group": {"_id": "$category_id", "count": {"$sum": 1}}}])}
+    for c in categories:
+        c["active_count"] = active_per_category.get(c.get("id"), 0)
     cat_by_id = {c["id"]: c for c in categories}
     videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(500))
     for v in videos:
@@ -798,10 +852,21 @@ def admin_dashboard():
             c = cat_by_id.get(ua.get("category_id"))
             if c:
                 granted.append(c["title"])
-        requests_rows.append({**r, "device_id": user.get("device_id", "-"), "requested_category": req_cat.get("title", "-"), "category_titles": ", ".join(granted) if granted else "-", "created_at_fa": r.get("created_at", "-")})
+        req_is_fake = bool(r.get("is_fake_receipt"))
+        requests_rows.append({
+            **r,
+            "device_id": user.get("device_id", "-"),
+            "requested_category": req_cat.get("title", "-"),
+            "category_titles": ", ".join(granted) if granted else "-",
+            "created_at_clock": format_clock(r.get("created_at")),
+            "created_at_day": format_day(r.get("created_at")),
+            "status_label": purchase_status_label(r.get("status"), req_is_fake),
+            "is_fake_receipt": req_is_fake,
+        })
 
     reports = []
     for rp in mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(300):
+        rp = dict(rp or {})
         user_id = rp.get("user_id")
         category_titles = []
         if user_id:
@@ -810,10 +875,27 @@ def admin_dashboard():
                 if c:
                     category_titles.append(c.get("title"))
         rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
-        if not rp.get("messages"):
-            seed_text = rp.get("report_text") or ""
-            rp["messages"] = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
-        rp["created_at_fa"] = rp.get("created_at", "-")
+        raw_messages = rp.get("messages") or []
+        normalized_messages = []
+        if isinstance(raw_messages, list):
+            for m in raw_messages:
+                if isinstance(m, dict):
+                    normalized_messages.append({
+                        "sender": m.get("sender") or "user",
+                        "text": str(m.get("text") or ""),
+                        "at": m.get("at"),
+                    })
+                elif isinstance(m, str) and m.strip():
+                    normalized_messages.append({"sender": "user", "text": m.strip(), "at": rp.get("created_at")})
+        if not normalized_messages:
+            seed_text = (rp.get("report_text") or "").strip()
+            normalized_messages = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
+        rp["messages"] = normalized_messages
+        rp["created_at_clock"] = format_clock(rp.get("created_at"))
+        rp["created_at_day"] = format_day(rp.get("created_at"))
+        for msg in rp["messages"]:
+            msg["at_clock"] = format_clock(msg.get("at"))
+            msg["at_day"] = format_day(msg.get("at"))
         reports.append(rp)
 
     testimonials = []
@@ -853,6 +935,9 @@ def admin_dashboard():
     for v in visitors:
         if code_by_device.get(v.get("device_id")):
             v["username"] = code_by_device.get(v.get("device_id"))
+        user = mdb["users"].find_one({"device_id": v.get("device_id")}, {"_id": 0, "id": 1})
+        has_active_access = bool(user and mdb["user_access"].count_documents({"user_id": user.get("id")}) > 0)
+        v["purchase_status_label"] = "تایید شده" if has_active_access else "تایید نشده"
 
     auth_users = []
     for au in mdb["auth_users"].find({}, {"_id": 0}).sort("id", -1).limit(300):
@@ -900,7 +985,9 @@ def admin_dashboard():
             "device_id": did,
             "browser_name": v.get("browser_name") or "-",
             "os_name": v.get("os_name") or "-",
+            "purchase_status_label": v.get("purchase_status_label") or "تایید نشده",
             "last_seen_at": format_clock(v.get("last_seen_at")),
+            "last_seen_day": format_day(v.get("last_seen_at")),
             "visit_count": int(v.get("visit_count", 0)),
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
@@ -1037,7 +1124,7 @@ def admin_approve_request(rid):
         category_ids = [int(req["requested_category_id"])]
     for cid in category_ids:
         mdb["user_access"].update_one({"user_id": req["user_id"], "category_id": cid}, {"$set": {"granted_at": now_iso()}}, upsert=True)
-    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "approved", "reviewed_at": now_iso(), "admin_note": None, "granted_category_ids": category_ids}})
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "approved", "reviewed_at": now_iso(), "admin_note": None, "granted_category_ids": category_ids, "is_fake_receipt": False}})
     return jsonify({"ok": True})
 
 
@@ -1050,7 +1137,18 @@ def admin_reject_request(rid):
     reason = (request.form.get("reason") or "").strip()
     if not reason:
         return jsonify({"ok": False, "message": "دلیل رد لازم است"}), 400
-    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "rejected", "reviewed_at": now_iso(), "admin_note": reason}})
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "rejected", "reviewed_at": now_iso(), "admin_note": reason, "is_fake_receipt": False}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/requests/<int:rid>/fake")
+@admin_required
+def admin_fake_request(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    reason = (request.form.get("reason") or "").strip() or "فیش نامعتبر تشخیص داده شد."
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "rejected", "is_fake_receipt": True, "reviewed_at": now_iso(), "admin_note": reason}})
     return jsonify({"ok": True})
 
 
@@ -1067,7 +1165,7 @@ def admin_reset_pending(rid):
             granted_ids = [int(req["requested_category_id"])]
         for cid in granted_ids:
             mdb["user_access"].delete_many({"user_id": req["user_id"], "category_id": cid})
-    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None, "granted_category_ids": []}})
+    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None, "granted_category_ids": [], "is_fake_receipt": False}})
     return jsonify({"ok": True})
 
 
@@ -1212,7 +1310,7 @@ def admin_live_stats():
         elif "windows" in os_name:
             os_counts["windows"] += 1
     stats = {
-        "online_total": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}}),
+        "online_total": len(seen),
         "active_last_minute": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": active_since}}),
         "online_ios": os_counts["ios"],
         "online_android": os_counts["android"],
@@ -1243,6 +1341,8 @@ def admin_live_stats():
 
     pipeline = [
         {"$match": {"updated_at": {"$gte": online_since}}},
+        {"$sort": {"updated_at": -1}},
+        {"$group": {"_id": "$device_id", "page_key": {"$first": "$page_key"}}},
         {"$group": {"_id": "$page_key", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]

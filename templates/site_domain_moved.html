@@ -13,8 +13,24 @@
       <h1>سایت به دامنه زیر انتقال یافته</h1>
       <p>لطفا لینک زیر را با <strong>Chrome</strong> باز کنید:</p>
       <a class="btn status-link-btn" href="{{ target_url }}" target="_blank" rel="noopener noreferrer">{{ target_url }}</a>
-      <p class="muted">اگر این صفحه را می‌بینید یعنی حالت انتقال دامنه از داخل <code>app.py</code> روشن است.</p>
     </section>
   </main>
 </body>
+<script>
+  (function () {
+    async function checkStatus() {
+      try {
+        const res = await fetch("/api/system-status");
+        const data = await res.json();
+        if (res.ok && data.ok && !data.site_domain_move_mode) {
+          window.location.replace("/");
+        }
+      } catch (_err) {
+        // silent
+      }
+    }
+    checkStatus();
+    setInterval(checkStatus, 5000);
+  })();
+</script>
 </html>

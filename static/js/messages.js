@@ -16,7 +16,7 @@
     if (Number.isNaN(d.getTime())) return v;
     const t = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "Asia/Tehran" });
     const dt = d.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Tehran" });
-    return `${t} | ${dt}`;
+    return `${t}<br><span class='tiny-text'>${dt}</span>`;
   }
 
   async function loadMessages() {

@@ -20,7 +20,7 @@
   function showCornerFlash(message) {
     const box = document.createElement("div");
     box.className = "iphone-corner-flash";
-    box.innerHTML = `<div class="iphone-corner-flash-arrow">⬇</div><div>${message}</div>`;
+    box.innerHTML = `<div class="iphone-corner-flash-arrow">🧭</div><div>${message}</div>`;
     document.body.appendChild(box);
     setTimeout(() => box.remove(), 4200);
   }
@@ -80,7 +80,7 @@
     const shown = Number(localStorage.getItem("mx_ios_popup_count") || "0");
     if (shown >= 3) return;
     localStorage.setItem("mx_ios_popup_count", String(shown + 1));
-    showCornerFlash("به دلیل استفاده از آیفون، اگر با مرورگری جز سافاری یا کروم هستید حتما سمت راست پایین روی قطب‌نما کلیک کنید.<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست.");
+    showCornerFlash("به دلیل استفاده از ایفون اگرر با مرورگری جز سافاری  یا کروم هستید حتما سمت راست پایین روی قطب نما کلیک کنید<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست");
   }
 
   function attachIphoneBuyAlerts() {
@@ -88,7 +88,7 @@
     const buyLinks = document.querySelectorAll("a[href^='/buy/']");
     buyLinks.forEach((link) => {
       link.addEventListener("click", () => {
-        showCornerFlash("به دلیل استفاده از آیفون، اگر با مرورگری جز سافاری یا کروم هستید حتما سمت راست پایین روی قطب‌نما کلیک کنید.<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست.");
+        showCornerFlash("به دلیل استفاده از ایفون اگرر با مرورگری جز سافاری  یا کروم هستید حتما سمت راست پایین روی قطب نما کلیک کنید<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست");
       });
     });
   }
@@ -203,6 +203,7 @@
     const surveyDeviceInput = document.getElementById("survey_device_id");
     const reportReplies = document.getElementById("report-replies");
     const messagesToggle = document.getElementById("admin-messages-toggle");
+    const messagesCountBadge = document.getElementById("admin-messages-count");
     const adminReplyBanner = document.getElementById("admin-reply-banner");
     const adminReplyBannerBtn = document.getElementById("admin-reply-banner-btn");
     const reportTypeSelect = reportForm ? reportForm.querySelector("select[name='report_type']") : null;
@@ -253,6 +254,12 @@
           }
         }
       });
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("open_survey") === "1" && surveyPanel) {
+      surveyPanel.classList.remove("hidden");
+      reportPanel?.classList.add("hidden");
+      surveyPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     if (messagesToggle) {
       messagesToggle.addEventListener("click", () => {
@@ -342,6 +349,10 @@
           .join("\n\n------------------\n\n");
         const unseenCount = Number(data.unseen_count || 0);
         if (messagesToggle) messagesToggle.classList.toggle("has-alert", unseenCount > 0);
+        if (messagesCountBadge) {
+          messagesCountBadge.classList.toggle("hidden", unseenCount <= 0);
+          messagesCountBadge.textContent = String(unseenCount);
+        }
         if (adminReplyBanner) adminReplyBanner.classList.toggle("hidden", unseenCount <= 0);
         const latestReplyId = Number(data.items[0].id || 0);
         const oldReplyId = Number(localStorage.getItem("mx_last_reply_id") || "0");
