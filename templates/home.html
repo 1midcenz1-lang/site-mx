@@ -5,6 +5,13 @@
   <h1>دریافت اشتراک فایل‌ها</h1>
   <p>دسته‌بندی دلخواهت را انتخاب کن و برای دریافت فایل این دسته‌بندی درخواست ثبت کن.</p>
 </section>
+<section class="purchase-counter">
+  <div class="counter-glow">
+    <p>🔥 تعداد خریدهای کل سایت</p>
+    <strong id="total-purchase-counter" data-count="{{ total_purchases }}">{{ total_purchases }}</strong>
+    <small>این عدد به‌صورت لحظه‌ای آپدیت می‌شود.</small>
+  </div>
+</section>
 
 <section class="table-wrap">
   <h2>دسته‌بندی‌های قابل مشاهده</h2>
@@ -116,6 +123,40 @@
       });
     });
     loadLikes();
+
+    const counterEl = document.getElementById("total-purchase-counter");
+    function animateCounter(from, to) {
+      if (!counterEl) return;
+      const start = Number(from || 0);
+      const end = Number(to || 0);
+      const duration = 700;
+      const startAt = performance.now();
+      function frame(now) {
+        const progress = Math.min(1, (now - startAt) / duration);
+        const current = Math.round(start + ((end - start) * progress));
+        counterEl.textContent = current.toLocaleString("fa-IR");
+        if (progress < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    async function refreshPublicStats() {
+      if (!counterEl) return;
+      try {
+        const res = await fetch("/api/public-stats");
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const prev = Number(counterEl.dataset.count || 0);
+        const next = Number(data.total_purchases || 0);
+        if (next !== prev) {
+          animateCounter(prev, next);
+          counterEl.dataset.count = String(next);
+        }
+      } catch (_err) {
+        // silent
+      }
+    }
+    setInterval(refreshPublicStats, 8000);
   })();
 </script>
 {% endblock %}

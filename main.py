@@ -251,16 +251,17 @@ def bind_device(access_code: str, device_id: str):
 
 
 def require_auth():
-    user = current_auth_user()
-    if not user:
-        return None, (jsonify({"ok": False, "message": "ابتدا وارد شوید.", "login_required": True}), 401)
     did = get_device_id_from_request()
+    if not did:
+        return None, (jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400)
     mdb = mongo_db()
     if mdb is None:
-        return None, (jsonify({"ok": False, "message": "MongoDB unavailable", "login_required": True}), 503)
-    bind = mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": did})
-    if not bind:
-        return None, (jsonify({"ok": False, "message": "دستگاه مجاز نیست.", "login_required": True}), 403)
+        return None, (jsonify({"ok": False, "message": "MongoDB unavailable"}), 503)
+    user = mdb["users"].find_one({"device_id": did})
+    if not user:
+        alias = did.replace("-", "")[:12] or uuid.uuid4().hex[:12]
+        user = {"id": mongo_next_id("users"), "device_id": did, "full_name": f"user-{alias}", "phone": f"device-{alias}", "is_banned": 0, "created_at": now_iso(), "updated_at": now_iso()}
+        mdb["users"].insert_one(user)
     return (user, did), None
 
 
@@ -288,9 +289,12 @@ def modes():
             return jsonify({"ok": False, "message": "سایت منتقل شده", "target_url": target}), 503
         return redirect(url_for("site_domain_move_page"))
     ua = request.headers.get("User-Agent", "")
-    if re.search(r"iphone|ipod", ua, flags=re.IGNORECASE) and not re.search(r"crios", ua, flags=re.IGNORECASE):
+    is_ios = bool(re.search(r"iphone|ipod|ipad", ua, flags=re.IGNORECASE))
+    is_chrome_ios = bool(re.search(r"crios", ua, flags=re.IGNORECASE))
+    is_safari_ios = bool(re.search(r"safari", ua, flags=re.IGNORECASE)) and not bool(re.search(r"crios|fxios|edgios|opios", ua, flags=re.IGNORECASE))
+    if is_ios and not (is_chrome_ios or is_safari_ios):
         if path.startswith("/api/"):
-            return jsonify({"ok": False, "need_chrome_ios": True}), 403
+            return jsonify({"ok": False, "need_supported_ios_browser": True}), 403
         if path != "/iphone-chrome-required":
             return redirect(url_for("iphone_chrome_required_page", next=request.url))
 
@@ -299,6 +303,7 @@ def modes():
 def home():
     mdb = mongo_db()
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1)) if mdb is not None else []
+    total_purchases = mdb["purchase_requests"].count_documents({}) if mdb is not None else 0
     testimonials = []
     if mdb is not None:
         cat_by_id = {c["id"]: c for c in categories}
@@ -321,13 +326,11 @@ def home():
                 "content": t.get("content") or t.get("testimonial_text") or "",
                 "category_titles": category_titles,
             })
-    return render_template("home.html", categories=categories, testimonials=testimonials)
+    return render_template("home.html", categories=categories, testimonials=testimonials, total_purchases=total_purchases)
 
 
 @app.route("/buy/<slug>")
 def buy_page(slug):
-    if not session.get("auth_access_code"):
-        return redirect(url_for("login_page", next=request.full_path.rstrip("?")))
     mdb = mongo_db()
     category = mdb["categories"].find_one({"slug": slug}, {"_id": 0}) if mdb is not None else None
     if not category:
@@ -347,71 +350,39 @@ def messages_page():
 
 @app.get("/login")
 def login_page():
-    next_url = request.args.get("next", url_for("home"))
-    if session.get("auth_access_code"):
-        return redirect(next_url)
-    return render_template("login.html", next_url=next_url)
+    return redirect(url_for("home"))
 
 
 @app.post("/api/auth/login")
 def api_auth_login():
-    payload = request.get_json(silent=True) or {}
-    code = (payload.get("access_code") or "").strip().upper()
-    did = get_device_id_from_request(payload)
-    mdb = mongo_db()
-    if mdb is None:
-        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    user = mdb["auth_users"].find_one({"access_code": code})
-    if not user:
-        return jsonify({"ok": False, "message": "کد اشتباه است."}), 401
-    ok, msg = bind_device(code, did)
-    if not ok:
-        return jsonify({"ok": False, "message": msg}), 403
-    session["auth_access_code"] = code
-    return jsonify({"ok": True, "access_code": code})
+    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
 
 
 @app.post("/api/auth/create-code")
 def api_auth_create_code():
-    payload = request.get_json(silent=True) or {}
-    did = get_device_id_from_request(payload)
-    mdb = mongo_db()
-    if mdb is None:
-        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    for _ in range(10):
-        code = generate_access_code()
-        if mdb["auth_users"].find_one({"access_code": code}):
-            continue
-        mdb["auth_users"].insert_one({"id": mongo_next_id("auth_users"), "access_code": code, "created_at": now_iso(), "updated_at": now_iso()})
-        bind_device(code, did)
-        session["auth_access_code"] = code
-        return jsonify({"ok": True, "access_code": code, "message": "کد را نگه دارید."})
-    return jsonify({"ok": False, "message": "خطا"}), 500
+    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
 
 
 @app.get("/api/auth/status")
 def api_auth_status():
-    mdb = mongo_db()
-    user = current_auth_user()
-    if not user:
-        return jsonify({"ok": True, "logged_in": False})
-    did = get_device_id_from_request()
-    has = bool(mdb is not None and mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": did}))
-    return jsonify({"ok": True, "logged_in": has, "access_code": user["access_code"], "max_devices": setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)})
+    return jsonify({"ok": True, "logged_in": True, "mode": "device_id"})
 
 
 @app.get("/api/auth/my-code")
 def api_auth_my_code():
-    user = current_auth_user()
-    if not user:
-        return jsonify({"ok": False, "login_required": True}), 401
-    return jsonify({"ok": True, "access_code": user["access_code"]})
+    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
 
 
 @app.post("/api/auth/logout")
 def api_auth_logout():
-    session.pop("auth_access_code", None)
     return jsonify({"ok": True})
+
+
+@app.get("/api/public-stats")
+def api_public_stats():
+    mdb = mongo_db()
+    total_purchases = mdb["purchase_requests"].count_documents({}) if mdb is not None else 0
+    return jsonify({"ok": True, "total_purchases": int(total_purchases), "updated_at": now_iso()})
 
 
 @app.post("/api/register-visit")
@@ -680,7 +651,8 @@ def site_domain_move_page():
 
 @app.route("/iphone-chrome-required")
 def iphone_chrome_required_page():
-    return render_template("iphone_chrome_required.html", next_url=request.args.get("next", "/"), open_url=request.args.get("open", ""))
+    next_url = request.args.get("next", "/")
+    return render_template("iphone_chrome_required.html", next_url=next_url)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
