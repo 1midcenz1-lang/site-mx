@@ -2,6 +2,7 @@
 import re
 import secrets
 import string
+import tempfile
 import uuid
 import zipfile
 from datetime import datetime, timedelta
@@ -1017,7 +1018,7 @@ def admin_dashboard():
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
             "report_count": report_count,
-            "report_link": f"/admin?q={did}",
+            "detail_link": f"/admin/user-activity/{did}",
         })
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
@@ -1068,6 +1069,65 @@ def admin_report_chat(rid):
     row["created_at_day"] = format_day(row.get("created_at"))
     row["category_titles"] = ", ".join(titles) if titles else "-"
     return render_template("admin_report_chat.html", report=row)
+
+
+@app.get("/admin/user-activity/<path:device_id>")
+@admin_required
+def admin_user_activity(device_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return redirect("/admin")
+    did = (device_id or "").strip()
+    if not did:
+        return redirect("/admin")
+
+    visitor = mdb["visitors"].find_one({"device_id": did}, {"_id": 0}) or {}
+    user = mdb["users"].find_one({"device_id": did}, {"_id": 0}) or {}
+    user_id = user.get("id")
+
+    categories = list(mdb["categories"].find({}, {"_id": 0, "id": 1, "title": 1}))
+    cat_by_id = {c.get("id"): c.get("title") for c in categories}
+    access_titles = []
+    if user_id:
+        for ua in mdb["user_access"].find({"user_id": user_id}, {"_id": 0, "category_id": 1}):
+            title = cat_by_id.get(ua.get("category_id"))
+            if title:
+                access_titles.append(title)
+
+    liked_titles = []
+    for lk in mdb["category_likes"].find({"device_id": did}, {"_id": 0, "category_id": 1}):
+        title = cat_by_id.get(lk.get("category_id"))
+        if title:
+            liked_titles.append(title)
+
+    purchases = []
+    if user_id:
+        for row in mdb["purchase_requests"].find({"user_id": user_id}, {"_id": 0}).sort("id", -1).limit(100):
+            req_cat = cat_by_id.get(row.get("requested_category_id"), "-")
+            purchases.append({
+                **row,
+                "requested_category": req_cat,
+                "status_label": purchase_status_label(row.get("status"), bool(row.get("is_fake_receipt"))),
+                "created_at_clock": format_clock(row.get("created_at")),
+                "created_at_day": format_day(row.get("created_at")),
+            })
+
+    reports = []
+    for rp in mdb["reports"].find({"device_id": did}, {"_id": 0}).sort("id", -1).limit(100):
+        rp["created_at_clock"] = format_clock(rp.get("created_at"))
+        rp["created_at_day"] = format_day(rp.get("created_at"))
+        reports.append(rp)
+
+    return render_template(
+        "admin_user_activity.html",
+        device_id=did,
+        user_id=user_id,
+        visitor=visitor,
+        access_titles="، ".join(access_titles) if access_titles else "-",
+        liked_titles="، ".join(liked_titles) if liked_titles else "-",
+        purchases=purchases,
+        reports=reports,
+    )
 
 
 @app.post("/admin/api/categories")
@@ -1328,6 +1388,32 @@ def admin_backup_receipts():
             if os.path.isfile(full):
                 zf.write(full, arcname=name)
     return send_file(zip_path, as_attachment=True, download_name="receipts_backup.zip")
+
+
+@app.get("/admin/api/backup-all")
+@admin_required
+def admin_backup_all():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    import json
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_file = os.path.join(tmp_dir, "mongo_backup.json")
+        payload = {}
+        for name in ["app_settings", "categories", "videos", "users", "purchase_requests", "reports", "visitors", "testimonials", "auth_users", "auth_user_devices", "user_access", "presence_sessions"]:
+            payload[name] = list(mdb[name].find({}, {"_id": 0}))
+        with open(db_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        out_zip = os.path.join(tmp_dir, "site_mx_backup_bundle.zip")
+        with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(db_file, arcname="mongo_backup.json")
+            for name in os.listdir(RECEIPTS_DIR):
+                full = os.path.join(RECEIPTS_DIR, name)
+                if os.path.isfile(full):
+                    zf.write(full, arcname=f"receipts/{name}")
+        return send_file(out_zip, as_attachment=True, download_name="site_mx_backup_bundle.zip")
 
 
 @app.get("/admin/api/live-stats")

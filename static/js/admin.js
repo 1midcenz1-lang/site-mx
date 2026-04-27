@@ -11,6 +11,8 @@
   const backupAllBtn = document.getElementById("download-all-backup-btn");
   const purchaseRowsBody = document.getElementById("purchase-rows-body");
   const reportRowsBody = document.getElementById("report-rows-body");
+  const userSearchForm = document.getElementById("admin-user-search-form");
+  const userSearchInput = document.getElementById("admin-user-search-input");
   const liveToast = document.getElementById("admin-live-toast");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
@@ -73,6 +75,21 @@
 
   function renderResetAction(rid) {
     return `<button class="btn small reset-pending-btn" type="button" data-request-id="${rid}">برگشت به pending</button>`;
+  }
+
+  function highlightUserPurchases(userId) {
+    if (!purchaseRowsBody) return false;
+    const rows = Array.from(purchaseRowsBody.querySelectorAll("tr"));
+    let matched = false;
+    rows.forEach((row) => {
+      const isTarget = String(row.dataset.userId || "") === String(userId);
+      row.classList.toggle("row-highlight", isTarget);
+      if (isTarget && !matched) {
+        matched = true;
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+    return matched;
   }
 
   function statusBadge(text) {
@@ -268,10 +285,19 @@
 
   if (backupAllBtn) {
     backupAllBtn.addEventListener("click", () => {
-      window.open("/admin/api/backup-db", "_blank");
-      setTimeout(() => {
-        window.open("/admin/api/backup-receipts", "_blank");
-      }, 600);
+      window.location.href = "/admin/api/backup-all";
+    });
+  }
+
+  if (userSearchForm && userSearchInput) {
+    userSearchForm.addEventListener("submit", (evt) => {
+      evt.preventDefault();
+      const value = (userSearchInput.value || "").trim();
+      const match = value.match(/(\d+)/);
+      if (!match) return showPopup("شماره کاربر را درست وارد کنید. مثال: کاربر 5");
+      const userId = Number(match[1]);
+      const found = highlightUserPurchases(userId);
+      if (!found) showPopup("این کاربر خریدی نکرده.");
     });
   }
 
@@ -521,7 +547,7 @@
       if (!res.ok || !data.ok) return;
       if (purchaseRowsBody && Array.isArray(data.purchases)) {
         purchaseRowsBody.innerHTML = data.purchases.map((r) => `
-          <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}">
+          <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}" data-user-id="${escapeHtml(r.user_id)}">
             <td>کاربر ${r.user_id || "-"}</td>
             <td class="device-id">${escapeHtml(r.device_id)}</td>
             <td>${escapeHtml(r.requested_category)}</td>
