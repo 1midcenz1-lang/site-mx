@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 import secrets
 import string
@@ -78,7 +78,7 @@ def now_iso() -> str:
 def get_mongo_client():
     if "mongo_client" in app.extensions:
         return app.extensions["mongo_client"]
-    uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/site_mx")
+    uri = os.environ.get("MONGO_URI", "mongodb://mani:mani2244@185.8.172.161:27017/site_mx?authSource=admin")
     db_name = os.environ.get("MONGO_DB_NAME", "").strip()
     try:
         pymongo_mod = __import__("pymongo")
