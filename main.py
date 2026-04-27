@@ -159,6 +159,75 @@ def remote_file_size(url: str | None) -> str:
     return "-"
 
 
+def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict[int, dict], limit: int = 300):
+    access_rows = list(mdb["user_access"].find({}, {"_id": 0, "user_id": 1, "category_id": 1}))
+    access_by_user: dict[int, list[int]] = {}
+    for ua in access_rows:
+        uid = ua.get("user_id")
+        cid = ua.get("category_id")
+        if uid is None or cid is None:
+            continue
+        access_by_user.setdefault(uid, []).append(cid)
+    rows = []
+    for r in mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1).limit(limit):
+        user = users_by_id.get(r.get("user_id"), {})
+        req_cat = cat_by_id.get(r.get("requested_category_id"), {})
+        granted_ids = access_by_user.get(r.get("user_id"), [])
+        granted = [cat_by_id.get(cid, {}).get("title") for cid in granted_ids if cat_by_id.get(cid)]
+        req_is_fake = bool(r.get("is_fake_receipt"))
+        rows.append({
+            **r,
+            "device_id": user.get("device_id", "-"),
+            "requested_category": req_cat.get("title", "-"),
+            "category_titles": ", ".join(granted) if granted else "-",
+            "created_at_clock": format_clock(r.get("created_at")),
+            "created_at_day": format_day(r.get("created_at")),
+            "status_label": purchase_status_label(r.get("status"), req_is_fake),
+            "is_fake_receipt": req_is_fake,
+        })
+    return rows
+
+
+def build_admin_reports(mdb, cat_by_id: dict[int, dict], limit: int = 300):
+    reports = []
+    access_rows = list(mdb["user_access"].find({}, {"_id": 0, "user_id": 1, "category_id": 1}))
+    access_by_user: dict[int, list[int]] = {}
+    for ua in access_rows:
+        uid = ua.get("user_id")
+        cid = ua.get("category_id")
+        if uid is None or cid is None:
+            continue
+        access_by_user.setdefault(uid, []).append(cid)
+    for rp in mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(limit):
+        rp = dict(rp or {})
+        user_id = rp.get("user_id")
+        category_titles = [cat_by_id.get(cid, {}).get("title") for cid in access_by_user.get(user_id, []) if cat_by_id.get(cid)]
+        rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
+        raw_messages = rp.get("messages") or []
+        normalized_messages = []
+        if isinstance(raw_messages, list):
+            for m in raw_messages:
+                if isinstance(m, dict):
+                    normalized_messages.append({
+                        "sender": m.get("sender") or "user",
+                        "text": str(m.get("text") or ""),
+                        "at": m.get("at"),
+                    })
+                elif isinstance(m, str) and m.strip():
+                    normalized_messages.append({"sender": "user", "text": m.strip(), "at": rp.get("created_at")})
+        if not normalized_messages:
+            seed_text = (rp.get("report_text") or "").strip()
+            normalized_messages = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
+        rp["messages"] = normalized_messages
+        rp["created_at_clock"] = format_clock(rp.get("created_at"))
+        rp["created_at_day"] = format_day(rp.get("created_at"))
+        for msg in rp["messages"]:
+            msg["at_clock"] = format_clock(msg.get("at"))
+            msg["at_day"] = format_day(msg.get("at"))
+        reports.append(rp)
+    return reports
+
+
 def get_mongo_client():
     if "mongo_client" in app.extensions:
         return app.extensions["mongo_client"]
@@ -831,7 +900,7 @@ def admin_dashboard():
     for c in categories:
         c["active_count"] = active_per_category.get(c.get("id"), 0)
     cat_by_id = {c["id"]: c for c in categories}
-    videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(500))
+    videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(180))
     for v in videos:
         v["category_title"] = (cat_by_id.get(v.get("category_id")) or {}).get("title", "-")
         if v.get("source_type") == "file":
@@ -840,63 +909,11 @@ def admin_dashboard():
             v["file_size"] = s
         else:
             v["file_count"] = None
-            v["file_size"] = remote_file_size(v.get("external_url"))
+            v["file_size"] = "لینک خارجی"
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
-    requests_rows = []
-    for r in mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1).limit(300):
-        user = users_by_id.get(r.get("user_id"), {})
-        req_cat = cat_by_id.get(r.get("requested_category_id"), {})
-        granted = []
-        for ua in mdb["user_access"].find({"user_id": r.get("user_id")}, {"_id": 0, "category_id": 1}):
-            c = cat_by_id.get(ua.get("category_id"))
-            if c:
-                granted.append(c["title"])
-        req_is_fake = bool(r.get("is_fake_receipt"))
-        requests_rows.append({
-            **r,
-            "device_id": user.get("device_id", "-"),
-            "requested_category": req_cat.get("title", "-"),
-            "category_titles": ", ".join(granted) if granted else "-",
-            "created_at_clock": format_clock(r.get("created_at")),
-            "created_at_day": format_day(r.get("created_at")),
-            "status_label": purchase_status_label(r.get("status"), req_is_fake),
-            "is_fake_receipt": req_is_fake,
-        })
-
-    reports = []
-    for rp in mdb["reports"].find({}, {"_id": 0}).sort("id", -1).limit(300):
-        rp = dict(rp or {})
-        user_id = rp.get("user_id")
-        category_titles = []
-        if user_id:
-            for ua in mdb["user_access"].find({"user_id": user_id}, {"_id": 0, "category_id": 1}):
-                c = cat_by_id.get(ua.get("category_id"))
-                if c:
-                    category_titles.append(c.get("title"))
-        rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
-        raw_messages = rp.get("messages") or []
-        normalized_messages = []
-        if isinstance(raw_messages, list):
-            for m in raw_messages:
-                if isinstance(m, dict):
-                    normalized_messages.append({
-                        "sender": m.get("sender") or "user",
-                        "text": str(m.get("text") or ""),
-                        "at": m.get("at"),
-                    })
-                elif isinstance(m, str) and m.strip():
-                    normalized_messages.append({"sender": "user", "text": m.strip(), "at": rp.get("created_at")})
-        if not normalized_messages:
-            seed_text = (rp.get("report_text") or "").strip()
-            normalized_messages = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
-        rp["messages"] = normalized_messages
-        rp["created_at_clock"] = format_clock(rp.get("created_at"))
-        rp["created_at_day"] = format_day(rp.get("created_at"))
-        for msg in rp["messages"]:
-            msg["at_clock"] = format_clock(msg.get("at"))
-            msg["at_day"] = format_day(msg.get("at"))
-        reports.append(rp)
+    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 300)
+    reports = build_admin_reports(mdb, cat_by_id, 300)
 
     testimonials = []
     for t in mdb["testimonials"].find({}, {"_id": 0}).sort("id", -1).limit(200):
@@ -1014,6 +1031,35 @@ def admin_receipt(filename):
     if not os.path.exists(full):
         abort(404)
     return send_file(full)
+
+
+@app.get("/admin/reports/<int:rid>")
+@admin_required
+def admin_report_chat(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return redirect("/admin")
+    row = mdb["reports"].find_one({"id": rid}, {"_id": 0})
+    if not row:
+        return redirect("/admin")
+    categories = list(mdb["categories"].find({}, {"_id": 0, "id": 1, "title": 1}))
+    cat_by_id = {c.get("id"): c.get("title") for c in categories}
+    user_id = row.get("user_id")
+    titles = []
+    if user_id:
+        for ua in mdb["user_access"].find({"user_id": user_id}, {"_id": 0, "category_id": 1}):
+            title = cat_by_id.get(ua.get("category_id"))
+            if title:
+                titles.append(title)
+    messages = row.get("messages") or []
+    row["messages"] = messages
+    for msg in row["messages"]:
+        msg["at_clock"] = format_clock(msg.get("at"))
+        msg["at_day"] = format_day(msg.get("at"))
+    row["created_at_clock"] = format_clock(row.get("created_at"))
+    row["created_at_day"] = format_day(row.get("created_at"))
+    row["category_titles"] = ", ".join(titles) if titles else "-"
+    return render_template("admin_report_chat.html", report=row)
 
 
 @app.post("/admin/api/categories")
@@ -1360,6 +1406,37 @@ def admin_live_stats():
             label = "تیکت‌ها"
         online_by_page[label] = int(row.get("count", 0))
     return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page, "mongo_ok": True})
+
+
+@app.get("/admin/api/live-feed")
+@admin_required
+def admin_live_feed():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    categories = list(mdb["categories"].find({}, {"_id": 0, "id": 1, "title": 1}))
+    cat_by_id = {c["id"]: c for c in categories}
+    users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
+    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 120)
+    reports = build_admin_reports(mdb, cat_by_id, 120)
+    report_rows = []
+    for rp in reports:
+        messages = rp.get("messages") or []
+        last_msg = messages[-1] if messages else {}
+        report_rows.append({
+            "id": rp.get("id"),
+            "reporter_name": rp.get("reporter_name") or f"کاربر {rp.get('user_id') or '-'}",
+            "device_id": rp.get("device_id") or "-",
+            "report_type": rp.get("report_type") or "-",
+            "category_titles": rp.get("category_titles") or "-",
+            "created_at_clock": rp.get("created_at_clock"),
+            "created_at_day": rp.get("created_at_day"),
+            "last_sender": "ادمین" if last_msg.get("sender") == "admin" else "کاربر",
+            "last_text": last_msg.get("text") or "-",
+            "last_at_clock": format_clock(last_msg.get("at")),
+            "last_at_day": format_day(last_msg.get("at")),
+        })
+    return jsonify({"ok": True, "purchases": requests_rows, "reports": report_rows})
 
 
 @app.post("/admin/api/settings")

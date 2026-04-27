@@ -18,6 +18,11 @@
     const dt = d.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Tehran" });
     return `${t}<br><span class='tiny-text'>${dt}</span>`;
   }
+  function fmtTimeParts(v) {
+    const html = fmtTime(v);
+    const [clock = "-", day = ""] = String(html).split("<br>");
+    return { clock, day };
+  }
 
   async function loadMessages() {
     try {
@@ -36,7 +41,9 @@
           const card = document.createElement("details");
           card.className = "accordion-item";
           const summary = document.createElement("summary");
-          summary.textContent = `تیکت #${item.id} | ${item.report_type} | ${fmtTime(item.created_at)}`;
+          const created = fmtTimeParts(item.created_at);
+          const cleanDay = created.day.replace("<span class='tiny-text'>", "").replace("</span>", "");
+          summary.innerHTML = `تیکت #${item.id} | ${item.report_type} | ${created.clock} <span class='tiny-text'>${cleanDay}</span>`;
           card.appendChild(summary);
           const body = document.createElement("div");
           body.className = "card";
@@ -86,4 +93,5 @@
   }
 
   loadMessages();
+  setInterval(loadMessages, 5000);
 })();
