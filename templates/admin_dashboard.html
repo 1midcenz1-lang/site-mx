@@ -5,35 +5,29 @@
   <h1>پنل ادمین</h1>
   <div class="topbar-actions">
     <button id="notif-toggle-btn" class="btn btn-ghost" type="button">نوتیف: خاموش</button>
-    <a class="btn" href="/admin/api/backup-db">دانلود بکاپ data.db</a>
+    <button id="download-all-backup-btn" class="btn" type="button">دانلود بکاپ دیتا (DB + Receipts)</button>
+    <a class="btn btn-ghost" href="/admin/api/backup-db">دانلود بکاپ DB</a>
+    <a class="btn btn-ghost" href="/admin/api/backup-receipts">دانلود ZIP رسیدها</a>
     <a class="btn btn-ghost" href="/admin_logout">خروج</a>
   </div>
 </section>
-<section class="card">
-  <h3>زمان فعلی سرور</h3>
-  <p><strong data-stat-key="server_now">{{ server_now }}</strong> - <span data-stat-key="server_day">{{ server_day }}</span></p>
+<section id="admin-unseen-banner" class="alert-banner hidden">
+  <strong>🔔 مورد دیده‌نشده دارید:</strong>
+  <span id="admin-unseen-text"></span>
 </section>
-<section class="form-card">
-  <h2>تنظیمات سیستم (DB)</h2>
-  <form id="settings-form">
-    <label><input type="checkbox" name="site_update_mode" value="1" {% if site_update_mode %}checked{% endif %}/> حالت بروزرسانی</label>
-    <label><input type="checkbox" name="site_domain_move_mode" value="1" {% if site_domain_move_mode %}checked{% endif %}/> حالت انتقال دامنه</label>
-    <label>دامنه جدید</label>
-    <input name="site_domain_move_target" value="{{ site_domain_move_target }}" />
-    <label>لینک بکاپ زمان بروزرسانی</label>
-    <input name="maintenance_fallback_url" value="{{ maintenance_fallback_url }}" />
-    <label>مقدار جابجایی UTC (ساعت)</label>
-    <input type="number" name="utc_adjust_hours" value="{{ utc_adjust_hours }}" />
-    <label>حداکثر دستگاه برای هر اکانت</label>
-    <input type="number" name="max_devices_per_user" min="1" max="10" value="{{ max_devices_per_user }}" />
-    <button class="btn" type="submit">ذخیره تنظیمات</button>
-  </form>
+<div id="admin-live-toast" class="hidden" style="position:fixed;top:12px;right:12px;z-index:1300;"></div>
+<section class="card">
+  <h3>⏰ زمان فعلی سرور</h3>
+  <div class="server-clock-pill">
+    <strong data-stat-key="server_now">{{ server_now }}</strong>
+    <span data-stat-key="server_day">{{ server_day }}</span>
+  </div>
 </section>
 <h1>امار بازدید</h1>
 <section class="grid-3">
   <article class="card"><h3>آنلاین لحظه‌ای</h3><p data-stat-key="online_total">{{ stats.online_total }}</p></article>
   <article class="card"><h3>فعال در ۶۰ ثانیه</h3><p data-stat-key="active_last_minute">{{ stats.active_last_minute }}</p></article>
-  <article class="card"><h3>درحال دانلود</h3><p data-stat-key="downloading_now">{{ stats.downloading_now }}</p></article>
+  <article class="card"><h3>Android / iPhone / Windows</h3><p><span data-stat-key="online_android">{{ stats.online_android }}</span> / <span data-stat-key="online_ios">{{ stats.online_ios }}</span> / <span data-stat-key="online_windows">{{ stats.online_windows }}</span></p></article>
   <article class="card"><h3>کل ریپورت‌ها</h3><p data-stat-key="total_reports">{{ stats.total_reports }}</p></article>
   <article class="card"><h3>کل بازدیدکننده‌ها</h3><p data-stat-key="total_visitors">{{ stats.total_visitors }}</p></article>
 </section>
@@ -61,16 +55,6 @@
   <article class="card"><h3>بازدید دیروز</h3><p data-stat-key="yesterday_visitors">{{ stats.yesterday_visitors }}</p></article>
 </section>
 <section class="table-wrap scroll-box">
-  <h2>جستجو</h2>
-  <form method="GET" class="form-card">
-    <label>جستجو (code/device/browser/os)</label>
-    <input name="q" value="{{ visitors_search }}" />
-    <label>حد نمایش</label>
-    <input type="number" name="limit" value="{{ visitors_limit }}" min="50" max="1000" />
-    <button class="btn small" type="submit">اعمال</button>
-  </form>
-</section>
-<section class="table-wrap scroll-box">
   <h2>آنلاین در هر صفحه</h2>
   <table>
     <thead><tr><th>صفحه</th><th>تعداد آنلاین</th></tr></thead>
@@ -83,45 +67,22 @@
 </section>
 <br>
 <section class="table-wrap scroll-box">
-  <h2>اکانت‌ها</h2>
+  <h2>خلاصه کامل رفتار کاربرها</h2>
   <table>
-    <thead><tr><th>ID</th><th>کد دسترسی</th><th>تعداد دستگاه</th><th>آخرین فعالیت دستگاه</th><th>آخرین آپدیت</th></tr></thead>
+    <thead><tr><th>کاربر</th><th>device_id</th><th>Browser</th><th>OS</th><th>آخرین حضور</th><th>تعداد ورود</th><th>دسته‌های لایک‌شده</th><th>دسترسی‌ها</th><th>تعداد ریپورت</th><th>لینک</th></tr></thead>
     <tbody>
-      {% for au in auth_users %}
+      {% for a in activity_rows %}
       <tr>
-        <td>{{ au.id }}</td>
-        <td>{{ au.access_code }}</td>
-        <td>{{ au.device_count }}</td>
-        <td>{{ au.last_device_seen or '-' }}</td>
-        <td>{{ au.updated_at }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-<br>
-<section class="table-wrap scroll-box">
-  <h2>بازدیدکننده‌ها (با مرورگر/OS/Device)</h2>
-  <table>
-    <thead><tr><th>ID</th><th>device_id</th><th>username</th><th>Browser</th><th>OS</th><th>Device</th><th>last_seen</th><th>visit_count</th><th>عملیات</th></tr></thead>
-    <tbody>
-      {% for v in visitors %}
-      <tr>
-        <td>{{ v.id }}</td>
-        <td class="device-id">{{ v.device_id }}</td>
-        <td>{{ v.username or '-' }}</td>
-        <td>{{ v.browser_name or '-' }}</td>
-        <td>{{ v.os_name or '-' }}</td>
-        <td>{{ v.device_model or '-' }}</td>
-        <td>{{ v.last_seen_at }}</td>
-        <td>{{ v.visit_count }}</td>
-        <td>
-          {% if v.is_banned %}
-          <button class="btn small unban-btn" data-visitor-id="{{ v.id }}" type="button">آن‌بن</button>
-          {% else %}
-          <button class="btn small btn-danger ban-btn" data-visitor-id="{{ v.id }}" type="button">بن</button>
-          {% endif %}
-        </td>
+        <td>{% if a.user_id %}کاربر {{ a.user_id }}{% else %}-{% endif %}</td>
+        <td class="device-id">{{ a.device_id }}</td>
+        <td>{{ a.browser_name }}</td>
+        <td>{{ a.os_name }}</td>
+        <td>{{ a.last_seen_at }}</td>
+        <td>{{ a.visit_count }}</td>
+        <td class="tiny-text">{{ a.liked_titles }}</td>
+        <td class="tiny-text">{{ a.access_titles }}</td>
+        <td>{{ a.report_count }}</td>
+        <td><a href="{{ a.report_link }}">مشاهده جزئیات</a></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -183,6 +144,7 @@
         <th>زمان خرید (ایران)</th>
         <th>فیش</th>
         <th>وضعیت</th>
+        <th>توضیح کاربر</th>
         <th>یادداشت ادمین</th>
         <th>عملیات</th>
       </tr>
@@ -197,6 +159,7 @@
         <td>{{ r.created_at_fa }}</td>
         <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
         <td>{{ r.status }}</td>
+        <td>{{ r.user_note or "-" }}</td>
         <td>{{ r.admin_note or "-" }}</td>
         <td>
           {% if r.status == 'pending' %}
@@ -225,15 +188,19 @@
   <h2>لیست دسته‌بندی‌ها</h2>
   <table>
     <thead>
-      <tr><th>ID</th><th>عنوان</th><th>Slug</th><th>عملیات</th></tr>
+      <tr><th>ID</th><th>عنوان</th><th>Slug</th><th>متن پرداخت</th><th>عملیات</th></tr>
     </thead>
     <tbody>
       {% for c in categories %}
       <tr>
         <td>{{ c.id }}</td>
-        <td>{{ c.title }}</td>
+        <td><input class="category-title-input" data-category-id="{{ c.id }}" value="{{ c.title }}" /></td>
         <td>{{ c.slug }}</td>
-        <td><button class="btn small btn-danger delete-category-btn" data-category-id="{{ c.id }}" type="button">حذف</button></td>
+        <td><textarea class="category-payment-input" data-category-id="{{ c.id }}" rows="3">{{ c.payment_text }}</textarea></td>
+        <td>
+          <button class="btn small save-category-btn" data-category-id="{{ c.id }}" type="button">ذخیره</button>
+          <button class="btn small btn-danger delete-category-btn" data-category-id="{{ c.id }}" type="button">حذف</button>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -244,7 +211,7 @@
   <h2>لیست فایل‌ها</h2>
   <table>
     <thead>
-      <tr><th>ID</th><th>عنوان</th><th>دسته</th><th>نوع</th><th>عملیات</th></tr>
+      <tr><th>ID</th><th>عنوان</th><th>دسته</th><th>نوع</th><th>حجم/تعداد</th><th>عملیات</th></tr>
     </thead>
     <tbody>
       {% for v in videos %}
@@ -253,6 +220,7 @@
         <td>{{ v.title }}</td>
         <td>{{ v.category_title }}</td>
         <td>{{ v.source_type }}</td>
+        <td>{% if v.file_count %}{{ v.file_count }} فایل | {% endif %}{{ v.file_size }}</td>
         <td><button class="btn small btn-danger delete-video-btn" data-video-id="{{ v.id }}" type="button">حذف</button></td>
       </tr>
       {% endfor %}
@@ -288,12 +256,12 @@
   </table>
 </section>
 <br>
-<section class="table-wrap scroll-box">
+<section id="reports-table" class="table-wrap scroll-box">
   <h2>ریپورت‌های کاربران</h2>
   <table>
     <thead>
       <tr>
-        <th>کاربر</th><th>شناسه دستگاه</th><th>دسته</th><th>متن</th><th>اشتراک‌ها</th><th>زمان (ایران)</th><th>پاسخ ادمین</th><th>عملیات</th>
+        <th>کاربر</th><th>شناسه دستگاه</th><th>دسته</th><th>تیکت</th><th>اشتراک‌ها</th><th>زمان (ایران)</th><th>عملیات</th>
       </tr>
     </thead>
     <tbody>
@@ -302,10 +270,17 @@
         <td>{{ rp.reporter_name or ('کاربر ' ~ (rp.user_id or '-')) }}</td>
         <td class="device-id">{{ rp.device_id }}</td>
         <td>{{ rp.report_type }}</td>
-        <td>{{ rp.report_text }}</td>
+        <td>
+          <div class="ticket-thread">
+            {% for m in rp.messages %}
+            <div class="ticket-msg {% if m.sender == 'admin' %}ticket-admin{% else %}ticket-user{% endif %}">
+              <strong>{% if m.sender == 'admin' %}ادمین{% else %}کاربر{% endif %}</strong>: {{ m.text }} <span class="tiny-text">({{ m.at or '-' }})</span>
+            </div>
+            {% endfor %}
+          </div>
+        </td>
         <td class="tiny-text">{{ rp.category_titles }}</td>
         <td>{{ rp.created_at_fa }}</td>
-        <td>{{ rp.admin_reply or '-' }}</td>
         <td>
           <form class="reply-form" data-report-id="{{ rp.id }}">
             <textarea name="reply_text" rows="2" placeholder="پاسخ ادمین..." required>{{ rp.admin_reply or '' }}</textarea>
@@ -317,6 +292,49 @@
       {% endfor %}
     </tbody>
   </table>
+</section>
+<br>
+<section class="table-wrap scroll-box">
+  <h2>جستجو کاربر</h2>
+  <form method="GET" class="form-card">
+    <label>مثال: کاربر 657</label>
+    <input name="q" value="{{ visitors_search }}" />
+    <button class="btn small" type="submit">اعمال</button>
+  </form>
+</section>
+<br>
+<section class="form-card">
+  <h2>تنظیمات سیستم (DB)</h2>
+  <form id="settings-form">
+    <label><input type="checkbox" name="site_update_mode" value="1" {% if site_update_mode %}checked{% endif %}/> حالت بروزرسانی</label>
+    <label><input type="checkbox" name="site_domain_move_mode" value="1" {% if site_domain_move_mode %}checked{% endif %}/> حالت انتقال دامنه</label>
+    <label>دامنه جدید</label>
+    <input name="site_domain_move_target" value="{{ site_domain_move_target }}" />
+    <label>لینک بکاپ زمان بروزرسانی</label>
+    <input name="maintenance_fallback_url" value="{{ maintenance_fallback_url }}" />
+    <label>مقدار جابجایی UTC (ساعت)</label>
+    <input type="number" name="utc_adjust_hours" value="{{ utc_adjust_hours }}" />
+    <label>حداکثر دستگاه برای هر اکانت</label>
+    <input type="number" name="max_devices_per_user" min="1" max="10" value="{{ max_devices_per_user }}" />
+    <label><input type="checkbox" name="purchase_enabled" value="1" {% if purchase_enabled %}checked{% endif %}/> خرید باز باشد</label>
+    <label>متن زمانی که خرید بسته است (پاپ‌آپ قرمز)</label>
+    <textarea name="purchase_disabled_message" rows="3">{{ purchase_disabled_message }}</textarea>
+    <hr>
+    <h3>نوتیف سراسری سایت</h3>
+    <label><input type="checkbox" name="global_notice_enabled" value="1" {% if global_notice_enabled %}checked{% endif %}/> فعال باشد</label>
+    <label>متن نوتیف</label>
+    <textarea name="global_notice_text" rows="2">{{ global_notice_text }}</textarea>
+    <label>رنگ نوتیف</label>
+    <input type="color" name="global_notice_color" value="{{ global_notice_color }}" />
+    <label>زمان نمایش (میلی‌ثانیه)</label>
+    <input type="number" name="global_notice_duration_ms" min="1000" max="20000" value="{{ global_notice_duration_ms }}" />
+    {% set selected_pages = (global_notice_pages or '').split(',') %}
+    <label>صفحه‌ها</label>
+    <label><input type="checkbox" name="global_notice_pages" value="home" {% if 'home' in selected_pages %}checked{% endif %}/> صفحه اصلی</label>
+    <label><input type="checkbox" name="global_notice_pages" value="my-videos" {% if 'my-videos' in selected_pages %}checked{% endif %}/> صفحه فایل‌های من</label>
+    <label><input type="checkbox" name="global_notice_pages" value="buy" {% if 'buy' in selected_pages %}checked{% endif %}/> صفحه خرید</label>
+    <button class="btn" type="submit">ذخیره تنظیمات</button>
+  </form>
 </section>
 {% endblock %}
 

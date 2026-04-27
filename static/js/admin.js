@@ -8,16 +8,52 @@
   const notifToggleBtn = document.getElementById("notif-toggle-btn");
   const onlineByPageBody = document.getElementById("online-by-page-body");
   const settingsForm = document.getElementById("settings-form");
+  const backupAllBtn = document.getElementById("download-all-backup-btn");
+  const unseenBanner = document.getElementById("admin-unseen-banner");
+  const unseenText = document.getElementById("admin-unseen-text");
+  const liveToast = document.getElementById("admin-live-toast");
+  let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
+  let lastTestimonialId = 0;
+  let unseenPurchaseCount = Number(localStorage.getItem("mx_unseen_purchase") || "0");
+  let unseenReportCount = Number(localStorage.getItem("mx_unseen_report") || "0");
+  let unseenTestimonialCount = Number(localStorage.getItem("mx_unseen_testimonial") || "0");
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
+
+  function showPopup(message, tone) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>${tone === "error" ? "خطا" : "پیام"}</h3>
+        <p>${message}</p>
+        <button class="btn ${tone === "error" ? "btn-danger" : ""}" type="button">متوجه شدم</button>
+      </div>
+    `;
+    const close = () => backdrop.remove();
+    backdrop.querySelector("button")?.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) close();
+    });
+    document.body.appendChild(backdrop);
+  }
+  window.alert = (msg) => showPopup(String(msg || ""));
 
   function setStat(key, value) {
     const el = document.querySelector(`[data-stat-key='${key}']`);
     if (!el) return;
     el.textContent = String(value);
   }
+
+  setInterval(() => {
+    const now = new Date();
+    const t = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "Asia/Tehran" });
+    const d = now.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Tehran" });
+    setStat("server_now", t);
+    setStat("server_day", d);
+  }, 1000);
 
   function notifyAdmin(title, body) {
     if (!notificationsEnabled) return;
@@ -35,6 +71,25 @@
     }
   }
 
+  function showLiveToast(text) {
+    if (!liveToast) return;
+    liveToast.innerHTML = `<div class="modal-card">${text}</div>`;
+    liveToast.classList.remove("hidden");
+    setTimeout(() => liveToast.classList.add("hidden"), 3000);
+  }
+
+  function renderUnseenBanner() {
+    const totalUnseen = unseenPurchaseCount + unseenReportCount + unseenTestimonialCount;
+    if (!unseenBanner || !unseenText) return;
+    if (totalUnseen > 0) {
+      unseenBanner.classList.remove("hidden");
+      unseenText.textContent = `خرید: ${unseenPurchaseCount} | ریپورت: ${unseenReportCount} | نظر: ${unseenTestimonialCount}`;
+    } else {
+      unseenBanner.classList.add("hidden");
+    }
+  }
+  renderUnseenBanner();
+
   function renderNotifToggle() {
     if (!notifToggleBtn) return;
     notifToggleBtn.textContent = notificationsEnabled ? "نوتیف: روشن" : "نوتیف: خاموش";
@@ -47,7 +102,7 @@
       if (!notificationsEnabled && "Notification" in window && Notification.permission !== "granted") {
         const perm = await Notification.requestPermission();
         if (perm !== "granted") {
-          alert("اجازه نوتیف داده نشد.");
+          showPopup("اجازه نوتیف داده نشد.");
           return;
         }
       }
@@ -64,11 +119,11 @@
       const res = await fetch("/admin/api/settings", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در ذخیره تنظیمات");
+        showPopup(data.message || "خطا در ذخیره تنظیمات");
         return;
       }
-      alert("تنظیمات ذخیره شد");
-      window.location.reload();
+      showPopup("تنظیمات ذخیره شد");
+      refreshLiveStats();
     });
   }
 
@@ -79,13 +134,40 @@
       const res = await fetch("/admin/api/categories", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا");
+        showPopup(data.message || "خطا");
         return;
       }
-      alert("دسته ثبت شد");
-      window.location.reload();
+      showPopup("دسته ثبت شد");
+      refreshLiveStats();
     });
   }
+
+  if (backupAllBtn) {
+    backupAllBtn.addEventListener("click", () => {
+      window.open("/admin/api/backup-db", "_blank");
+      setTimeout(() => {
+        window.open("/admin/api/backup-receipts", "_blank");
+      }, 600);
+    });
+  }
+
+  document.querySelectorAll(".save-category-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.categoryId;
+      const titleInput = document.querySelector(`.category-title-input[data-category-id='${id}']`);
+      const paymentInput = document.querySelector(`.category-payment-input[data-category-id='${id}']`);
+      const fd = new FormData();
+      fd.append("title", titleInput ? titleInput.value : "");
+      fd.append("payment_text", paymentInput ? paymentInput.value : "");
+      const res = await fetch(`/admin/api/categories/${id}/update`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showPopup(data.message || "خطا در ذخیره دسته");
+        return;
+      }
+      showPopup("دسته بروزرسانی شد");
+    });
+  });
 
   document.querySelectorAll(".delete-category-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -94,11 +176,12 @@
       const res = await fetch(`/admin/api/categories/${id}/delete`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در حذف دسته");
+        showPopup(data.message || "خطا در حذف دسته");
         return;
       }
-      alert("دسته حذف شد");
-      window.location.reload();
+      showPopup("دسته حذف شد");
+      btn.closest("tr")?.remove();
+      refreshLiveStats();
     });
   });
 
@@ -109,11 +192,12 @@
       const res = await fetch(`/admin/api/videos/${id}/delete`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در حذف فایل");
+        showPopup(data.message || "خطا در حذف فایل");
         return;
       }
-      alert("فایل حذف شد");
-      window.location.reload();
+      showPopup("فایل حذف شد");
+      btn.closest("tr")?.remove();
+      refreshLiveStats();
     });
   });
 
@@ -124,11 +208,12 @@
       const res = await fetch(`/admin/api/testimonials/${id}/delete`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در حذف نظر");
+        showPopup(data.message || "خطا در حذف نظر");
         return;
       }
-      alert("نظر حذف شد");
-      window.location.reload();
+      showPopup("نظر حذف شد");
+      btn.closest("tr")?.remove();
+      refreshLiveStats();
     });
   });
 
@@ -138,11 +223,16 @@
       const res = await fetch(`/admin/api/testimonials/${id}/approve`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در تایید نظر");
+        showPopup(data.message || "خطا در تایید نظر");
         return;
       }
-      alert("نظر تایید شد");
-      window.location.reload();
+      showPopup("نظر تایید شد");
+      const row = btn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[3]) cells[3].textContent = "approved";
+      }
+      refreshLiveStats();
     });
   });
 
@@ -152,11 +242,16 @@
       const res = await fetch(`/admin/api/testimonials/${id}/reject`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در رد نظر");
+        showPopup(data.message || "خطا در رد نظر");
         return;
       }
-      alert("نظر رد شد");
-      window.location.reload();
+      showPopup("نظر رد شد");
+      const row = btn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[3]) cells[3].textContent = "rejected";
+      }
+      refreshLiveStats();
     });
   });
 
@@ -184,22 +279,22 @@
         try {
           const data = JSON.parse(xhr.responseText || "{}");
           if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
-            alert(data.message || "خطا");
+            showPopup(data.message || "خطا");
             return;
           }
           if (progressBar && progressText) {
             progressBar.style.width = "100%";
             progressText.textContent = "100%";
           }
-          alert("فایل ثبت شد");
-          window.location.reload();
+          showPopup("فایل ثبت شد");
+          refreshLiveStats();
         } catch (_err) {
-          alert("خطا در پاسخ سرور");
+          showPopup("خطا در پاسخ سرور");
         }
       };
 
       xhr.onerror = () => {
-        alert("خطا در آپلود فایل");
+        showPopup("خطا در آپلود فایل");
       };
 
       xhr.send(fd);
@@ -214,10 +309,16 @@
       const res = await fetch(`/admin/api/requests/${rid}/approve`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در تایید");
+        showPopup(data.message || "خطا در تایید");
         return;
       }
-      alert("تایید شد");
+      showPopup("تایید شد");
+      const row = form.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) cells[6].textContent = "approved";
+        if (cells[8]) cells[8].textContent = "-";
+      }
     });
   });
 
@@ -228,7 +329,7 @@
       const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
       const reason = reasonInput ? reasonInput.value.trim() : "";
       if (!reason) {
-        alert("دلیل رد را وارد کنید.");
+        showPopup("دلیل رد را وارد کنید.");
         return;
       }
       const fd = new FormData();
@@ -236,10 +337,16 @@
       const res = await fetch(`/admin/api/requests/${rid}/reject`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در رد درخواست");
+        showPopup(data.message || "خطا در رد درخواست");
         return;
       }
-      alert("رد شد");
+      showPopup("رد شد");
+      const row = btn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) cells[6].textContent = "rejected";
+        if (cells[8]) cells[8].textContent = reason;
+      }
     });
   });
 
@@ -249,11 +356,16 @@
       const res = await fetch(`/admin/api/requests/${rid}/reset-pending`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در بازگشت به pending");
+        showPopup(data.message || "خطا در بازگشت به pending");
         return;
       }
-      alert("وضعیت به pending برگشت.");
-      window.location.reload();
+      showPopup("وضعیت به pending برگشت.");
+      const row = btn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) cells[6].textContent = "pending";
+      }
+      refreshLiveStats();
     });
   });
 
@@ -263,11 +375,13 @@
       const res = await fetch(`/admin/api/visitors/${id}/ban`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در بن");
+        showPopup(data.message || "خطا در بن");
         return;
       }
-      alert("کاربر بن شد");
-      window.location.reload();
+      showPopup("کاربر بن شد");
+      btn.textContent = "بن شد";
+      btn.disabled = true;
+      refreshLiveStats();
     });
   });
 
@@ -277,11 +391,13 @@
       const res = await fetch(`/admin/api/visitors/${id}/unban`, { method: "POST" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در آن‌بن");
+        showPopup(data.message || "خطا در آن‌بن");
         return;
       }
-      alert("کاربر آن‌بن شد");
-      window.location.reload();
+      showPopup("کاربر آن‌بن شد");
+      btn.textContent = "آن‌بن شد";
+      btn.disabled = true;
+      refreshLiveStats();
     });
   });
 
@@ -292,11 +408,12 @@
       const res = await fetch("/admin/api/device-ban", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در بن");
+        showPopup(data.message || "خطا در بن");
         return;
       }
-      alert("کاربر گزارش‌دهنده بن شد");
-      window.location.reload();
+      showPopup("کاربر گزارش‌دهنده بن شد");
+      btn.disabled = true;
+      refreshLiveStats();
     });
   });
 
@@ -308,17 +425,26 @@
       const res = await fetch(`/admin/api/reports/${rid}/reply`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(data.message || "خطا در ثبت پاسخ");
+        showPopup(data.message || "خطا در ثبت پاسخ");
         return;
       }
-      alert("پاسخ ثبت شد");
-      window.location.reload();
+      showPopup("پاسخ ثبت شد");
+      const row = form.closest("tr");
+      const thread = row ? row.querySelector(".ticket-thread") : null;
+      const text = form.querySelector("textarea[name='reply_text']")?.value || "";
+      if (thread) {
+        const item = document.createElement("div");
+        item.className = "ticket-msg ticket-admin";
+        item.innerHTML = `<strong>ادمین</strong>: ${text}`;
+        thread.appendChild(item);
+      }
+      refreshLiveStats();
     });
   });
 
   if (statNodes.length > 0) {
     let primed = false;
-    const refreshLiveStats = async () => {
+    refreshLiveStats = async () => {
       try {
         const res = await fetch("/admin/api/live-stats");
         const data = await res.json();
@@ -330,20 +456,39 @@
         });
         const latestPurchase = Number(stats.latest_purchase_id || 0);
         const latestReport = Number(stats.latest_report_id || 0);
+        const latestTestimonial = Number(stats.latest_testimonial_id || 0);
         if (!primed) {
           lastPurchaseId = latestPurchase;
           lastReportId = latestReport;
+          lastTestimonialId = latestTestimonial;
           primed = true;
           return;
         }
-        if (latestPurchase > lastPurchaseId) {
-          notifyAdmin("درخواست خرید جدید", `${latestPurchase - lastPurchaseId} خرید جدید ثبت شد.`);
+        const unseenPurchase = Math.max(0, latestPurchase - lastPurchaseId);
+        const unseenReport = Math.max(0, latestReport - lastReportId);
+        const unseenTestimonial = Math.max(0, latestTestimonial - lastTestimonialId);
+        if (unseenPurchase > 0) {
+          notifyAdmin("درخواست خرید جدید", `${unseenPurchase} خرید جدید ثبت شد.`);
+          showLiveToast("🛒 خرید جدید ثبت شد");
           lastPurchaseId = latestPurchase;
+          unseenPurchaseCount += unseenPurchase;
+          localStorage.setItem("mx_unseen_purchase", String(unseenPurchaseCount));
         }
-        if (latestReport > lastReportId) {
-          notifyAdmin("ریپورت جدید", `${latestReport - lastReportId} ریپورت جدید ثبت شد.`);
+        if (unseenReport > 0) {
+          notifyAdmin("ریپورت جدید", `${unseenReport} ریپورت جدید ثبت شد.`);
+          showLiveToast("📩 ریپورت جدید ثبت شد");
           lastReportId = latestReport;
+          unseenReportCount += unseenReport;
+          localStorage.setItem("mx_unseen_report", String(unseenReportCount));
         }
+        if (unseenTestimonial > 0) {
+          notifyAdmin("نظر جدید", `${unseenTestimonial} نظر جدید ثبت شد.`);
+          showLiveToast("💬 نظر جدید ثبت شد");
+          lastTestimonialId = latestTestimonial;
+          unseenTestimonialCount += unseenTestimonial;
+          localStorage.setItem("mx_unseen_testimonial", String(unseenTestimonialCount));
+        }
+        renderUnseenBanner();
         if (onlineByPageBody && data.online_by_page) {
           const rows = Object.entries(data.online_by_page)
             .map(([page, count]) => `<tr><td>${page}</td><td>${count}</td></tr>`)
@@ -355,6 +500,6 @@
       }
     };
     refreshLiveStats();
-    setInterval(refreshLiveStats, 5000);
+    setInterval(refreshLiveStats, 1000);
   }
 })();

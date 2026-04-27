@@ -3,8 +3,10 @@ import re
 import secrets
 import string
 import uuid
+import zipfile
 from datetime import datetime, timedelta
 from functools import wraps
+from urllib import request as urllib_request
 from zoneinfo import ZoneInfo
 
 from flask import (
@@ -73,6 +75,51 @@ CLIENT_APPROVED_TEXT = (
 
 def now_iso() -> str:
     return datetime.utcnow().isoformat()
+
+
+def human_size(size_bytes: int | None) -> str:
+    if not size_bytes or size_bytes <= 0:
+        return "-"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(size_bytes)
+    idx = 0
+    while value >= 1024 and idx < len(units) - 1:
+        value /= 1024
+        idx += 1
+    return f"{value:.1f} {units[idx]}"
+
+
+def local_zip_info(file_path: str | None) -> tuple[int | None, str]:
+    if not file_path:
+        return None, "-"
+    full = os.path.join(VIDEOS_DIR, file_path)
+    if not os.path.exists(full):
+        return None, "-"
+    try:
+        size = os.path.getsize(full)
+    except Exception:
+        size = 0
+    file_count = None
+    try:
+        with zipfile.ZipFile(full) as zf:
+            file_count = len([n for n in zf.namelist() if not n.endswith("/")])
+    except Exception:
+        file_count = None
+    return file_count, human_size(size)
+
+
+def remote_file_size(url: str | None) -> str:
+    if not url:
+        return "-"
+    try:
+        req = urllib_request.Request(url, method="HEAD")
+        with urllib_request.urlopen(req, timeout=8) as resp:
+            content_length = resp.headers.get("Content-Length")
+            if content_length and str(content_length).isdigit():
+                return human_size(int(content_length))
+    except Exception:
+        return "-"
+    return "-"
 
 
 def get_mongo_client():
@@ -154,6 +201,13 @@ def seed_mongo():
         "utc_adjust_hours": str(DEFAULT_UTC_ADJUST_HOURS),
         "max_devices_per_user": str(DEFAULT_MAX_DEVICES_PER_USER),
         "maintenance_fallback_url": "http://mxdomain.top:5000",
+        "purchase_enabled": "1",
+        "purchase_disabled_message": "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید.",
+        "global_notice_enabled": "0",
+        "global_notice_text": "",
+        "global_notice_color": "#0ea5e9",
+        "global_notice_duration_ms": "5000",
+        "global_notice_pages": "home,my-videos,buy",
     }
     for k, v in defaults.items():
         mdb["app_settings"].update_one({"key": k}, {"$setOnInsert": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)
@@ -194,6 +248,10 @@ def register_visit(device_id: str):
     if mdb is None:
         return
     meta = parse_user_agent(request.headers.get("User-Agent", ""))
+    print(
+        f"[visit] device_id={device_id} browser={meta.get('browser_name')} "
+        f"os={meta.get('os_name')} model={meta.get('device_model')}"
+    )
     row = mdb["visitors"].find_one({"device_id": device_id})
     if not row:
         mdb["visitors"].insert_one({
@@ -251,16 +309,17 @@ def bind_device(access_code: str, device_id: str):
 
 
 def require_auth():
-    user = current_auth_user()
-    if not user:
-        return None, (jsonify({"ok": False, "message": "ابتدا وارد شوید.", "login_required": True}), 401)
     did = get_device_id_from_request()
+    if not did:
+        return None, (jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400)
     mdb = mongo_db()
     if mdb is None:
-        return None, (jsonify({"ok": False, "message": "MongoDB unavailable", "login_required": True}), 503)
-    bind = mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": did})
-    if not bind:
-        return None, (jsonify({"ok": False, "message": "دستگاه مجاز نیست.", "login_required": True}), 403)
+        return None, (jsonify({"ok": False, "message": "MongoDB unavailable"}), 503)
+    user = mdb["users"].find_one({"device_id": did})
+    if not user:
+        alias = did.replace("-", "")[:12] or uuid.uuid4().hex[:12]
+        user = {"id": mongo_next_id("users"), "device_id": did, "full_name": f"user-{alias}", "phone": f"device-{alias}", "is_banned": 0, "created_at": now_iso(), "updated_at": now_iso()}
+        mdb["users"].insert_one(user)
     return (user, did), None
 
 
@@ -287,18 +346,14 @@ def modes():
         if path.startswith("/api/"):
             return jsonify({"ok": False, "message": "سایت منتقل شده", "target_url": target}), 503
         return redirect(url_for("site_domain_move_page"))
-    ua = request.headers.get("User-Agent", "")
-    if re.search(r"iphone|ipod", ua, flags=re.IGNORECASE) and not re.search(r"crios", ua, flags=re.IGNORECASE):
-        if path.startswith("/api/"):
-            return jsonify({"ok": False, "need_chrome_ios": True}), 403
-        if path != "/iphone-chrome-required":
-            return redirect(url_for("iphone_chrome_required_page", next=request.url))
+    return None
 
 
 @app.route("/")
 def home():
     mdb = mongo_db()
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1)) if mdb is not None else []
+    total_purchases = mdb["purchase_requests"].count_documents({}) if mdb is not None else 0
     testimonials = []
     if mdb is not None:
         cat_by_id = {c["id"]: c for c in categories}
@@ -321,13 +376,11 @@ def home():
                 "content": t.get("content") or t.get("testimonial_text") or "",
                 "category_titles": category_titles,
             })
-    return render_template("home.html", categories=categories, testimonials=testimonials)
+    return render_template("home.html", categories=categories, testimonials=testimonials, total_purchases=total_purchases)
 
 
 @app.route("/buy/<slug>")
 def buy_page(slug):
-    if not session.get("auth_access_code"):
-        return redirect(url_for("login_page", next=request.full_path.rstrip("?")))
     mdb = mongo_db()
     category = mdb["categories"].find_one({"slug": slug}, {"_id": 0}) if mdb is not None else None
     if not category:
@@ -347,71 +400,44 @@ def messages_page():
 
 @app.get("/login")
 def login_page():
-    next_url = request.args.get("next", url_for("home"))
-    if session.get("auth_access_code"):
-        return redirect(next_url)
-    return render_template("login.html", next_url=next_url)
+    return redirect(url_for("home"))
 
 
 @app.post("/api/auth/login")
 def api_auth_login():
-    payload = request.get_json(silent=True) or {}
-    code = (payload.get("access_code") or "").strip().upper()
-    did = get_device_id_from_request(payload)
-    mdb = mongo_db()
-    if mdb is None:
-        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    user = mdb["auth_users"].find_one({"access_code": code})
-    if not user:
-        return jsonify({"ok": False, "message": "کد اشتباه است."}), 401
-    ok, msg = bind_device(code, did)
-    if not ok:
-        return jsonify({"ok": False, "message": msg}), 403
-    session["auth_access_code"] = code
-    return jsonify({"ok": True, "access_code": code})
+    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
 
 
 @app.post("/api/auth/create-code")
 def api_auth_create_code():
-    payload = request.get_json(silent=True) or {}
-    did = get_device_id_from_request(payload)
-    mdb = mongo_db()
-    if mdb is None:
-        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    for _ in range(10):
-        code = generate_access_code()
-        if mdb["auth_users"].find_one({"access_code": code}):
-            continue
-        mdb["auth_users"].insert_one({"id": mongo_next_id("auth_users"), "access_code": code, "created_at": now_iso(), "updated_at": now_iso()})
-        bind_device(code, did)
-        session["auth_access_code"] = code
-        return jsonify({"ok": True, "access_code": code, "message": "کد را نگه دارید."})
-    return jsonify({"ok": False, "message": "خطا"}), 500
+    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
 
 
 @app.get("/api/auth/status")
 def api_auth_status():
-    mdb = mongo_db()
-    user = current_auth_user()
-    if not user:
-        return jsonify({"ok": True, "logged_in": False})
-    did = get_device_id_from_request()
-    has = bool(mdb is not None and mdb["auth_user_devices"].find_one({"access_code": user["access_code"], "device_id": did}))
-    return jsonify({"ok": True, "logged_in": has, "access_code": user["access_code"], "max_devices": setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)})
+    return jsonify({"ok": True, "logged_in": True, "mode": "device_id"})
 
 
 @app.get("/api/auth/my-code")
 def api_auth_my_code():
-    user = current_auth_user()
-    if not user:
-        return jsonify({"ok": False, "login_required": True}), 401
-    return jsonify({"ok": True, "access_code": user["access_code"]})
+    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
 
 
 @app.post("/api/auth/logout")
 def api_auth_logout():
-    session.pop("auth_access_code", None)
     return jsonify({"ok": True})
+
+
+@app.get("/api/public-stats")
+def api_public_stats():
+    mdb = mongo_db()
+    total_active_subscriptions = mdb["user_access"].count_documents({}) if mdb is not None else 0
+    return jsonify({
+        "ok": True,
+        "total_purchases": int(total_active_subscriptions),
+        "total_active_subscriptions": int(total_active_subscriptions),
+        "updated_at": now_iso(),
+    })
 
 
 @app.post("/api/register-visit")
@@ -438,7 +464,7 @@ def api_presence():
     register_visit(did)
     mdb = mongo_db()
     if mdb is not None:
-        mdb["presence_sessions"].update_one({"device_id": did, "page_key": page_key}, {"$set": {"updated_at": now_iso()}}, upsert=True)
+        mdb["presence_sessions"].update_one({"device_id": did}, {"$set": {"page_key": page_key, "updated_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True})
 
 
@@ -449,12 +475,15 @@ def submit_request():
         return err
     _user, did = auth
     cid = request.form.get("category_id", "").strip()
+    note = (request.form.get("request_note") or "").strip()
     receipt = request.files.get("receipt")
     if not cid or not receipt:
         return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    if not setting_bool("purchase_enabled", True):
+        return jsonify({"ok": False, "message": get_setting("purchase_disabled_message", "فعلا خرید بسته است.")}), 403
     category = mdb["categories"].find_one({"id": int(cid)})
     if not category:
         return jsonify({"ok": False, "message": "دسته نامعتبر"}), 400
@@ -468,7 +497,7 @@ def submit_request():
     receipt_name = secure_filename(receipt.filename)
     final_name = f"{uuid.uuid4().hex}_{receipt_name}"
     receipt.save(os.path.join(RECEIPTS_DIR, final_name))
-    mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": final_name, "status": "pending", "admin_note": None, "created_at": now_iso(), "reviewed_at": None})
+    mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": final_name, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
     mdb["visitors"].update_one({"device_id": did}, {"$inc": {"purchase_count": 1}, "$set": {"last_seen_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True, "message": CLIENT_WAITING_REVIEW_TEXT, "next_url": "/my-videos"})
 
@@ -501,7 +530,20 @@ def submit_report():
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
     user = mdb["users"].find_one({"device_id": did})
     uid = user.get("id") if user else None
-    mdb["reports"].insert_one({"id": mongo_next_id("reports"), "device_id": did, "user_id": uid, "reporter_name": f"کاربر {uid}" if uid else "کاربر", "report_type": report_type, "report_text": report_text, "admin_reply": None, "replied_at": None, "user_seen_at": None, "created_at": now_iso()})
+    now = now_iso()
+    mdb["reports"].insert_one({
+        "id": mongo_next_id("reports"),
+        "device_id": did,
+        "user_id": uid,
+        "reporter_name": f"کاربر {uid}" if uid else "کاربر",
+        "report_type": report_type,
+        "report_text": report_text,
+        "admin_reply": None,
+        "replied_at": None,
+        "user_seen_at": None,
+        "created_at": now,
+        "messages": [{"sender": "user", "text": report_text, "at": now}],
+    })
     return jsonify({"ok": True, "message": "ریپورت ثبت شد"})
 
 
@@ -534,8 +576,13 @@ def my_replies():
     mdb = mongo_db()
     if mdb is None or not did:
         return jsonify({"ok": True, "items": [], "unseen_count": 0})
-    rows = list(mdb["reports"].find({"device_id": did, "admin_reply": {"$ne": None}}, {"_id": 0}).sort("id", -1).limit(20))
-    unseen = sum(1 for x in rows if not x.get("user_seen_at"))
+    rows = list(mdb["reports"].find({"device_id": did}, {"_id": 0}).sort("id", -1).limit(30))
+    unseen = 0
+    for x in rows:
+        messages = x.get("messages") or []
+        has_admin = any(m.get("sender") == "admin" for m in messages)
+        if has_admin and not x.get("user_seen_at"):
+            unseen += 1
     return jsonify({"ok": True, "items": rows, "unseen_count": unseen})
 
 
@@ -545,7 +592,26 @@ def mark_replies_seen():
     mdb = mongo_db()
     if mdb is None or not did:
         return jsonify({"ok": False}), 400
-    mdb["reports"].update_many({"device_id": did, "admin_reply": {"$ne": None}, "user_seen_at": None}, {"$set": {"user_seen_at": now_iso()}})
+    mdb["reports"].update_many({"device_id": did, "user_seen_at": None}, {"$set": {"user_seen_at": now_iso()}})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/reports/<int:rid>/reply")
+def user_reply_report(rid):
+    payload = request.get_json(silent=True) or {}
+    did = get_device_id_from_request(payload)
+    text = (payload.get("text") or "").strip()
+    if not did or not text:
+        return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    row = mdb["reports"].find_one({"id": rid, "device_id": did})
+    if not row:
+        return jsonify({"ok": False, "message": "تیکت پیدا نشد"}), 404
+    msgs = list(row.get("messages") or [])
+    msgs.append({"sender": "user", "text": text, "at": now_iso()})
+    mdb["reports"].update_one({"id": rid}, {"$set": {"messages": msgs, "report_text": text, "user_seen_at": None}})
     return jsonify({"ok": True})
 
 
@@ -600,6 +666,13 @@ def api_my_videos():
         for v in vids:
             v["watch_url"] = f"/api/watch/{v['id']}"
             v["type"] = v.get("source_type")
+            if v.get("source_type") == "file":
+                cnt, sz = local_zip_info(v.get("file_path"))
+                v["file_count"] = cnt
+                v["file_size"] = sz
+            else:
+                v["file_count"] = None
+                v["file_size"] = remote_file_size(v.get("external_url"))
         categories.append({"id": cat["id"], "title": cat["title"], "videos": vids})
     return jsonify({"ok": True, "approved_text": CLIENT_APPROVED_TEXT, "categories": categories})
 
@@ -680,7 +753,8 @@ def site_domain_move_page():
 
 @app.route("/iphone-chrome-required")
 def iphone_chrome_required_page():
-    return render_template("iphone_chrome_required.html", next_url=request.args.get("next", "/"), open_url=request.args.get("open", ""))
+    next_url = request.args.get("next", "/")
+    return render_template("iphone_chrome_required.html", next_url=next_url)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -697,15 +771,22 @@ def admin_login():
 @admin_required
 def admin_dashboard():
     mdb = mongo_db()
-    base_stats = {"online_total": 0, "downloading_now": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
+    base_stats = {"online_total": 0, "online_ios": 0, "online_android": 0, "online_windows": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
     if mdb is None:
-        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], online_by_page={}, stats=base_stats, visitors_limit=300, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
     cat_by_id = {c["id"]: c for c in categories}
     videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(500))
     for v in videos:
         v["category_title"] = (cat_by_id.get(v.get("category_id")) or {}).get("title", "-")
+        if v.get("source_type") == "file":
+            c, s = local_zip_info(v.get("file_path"))
+            v["file_count"] = c
+            v["file_size"] = s
+        else:
+            v["file_count"] = None
+            v["file_size"] = remote_file_size(v.get("external_url"))
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
     requests_rows = []
@@ -729,6 +810,9 @@ def admin_dashboard():
                 if c:
                     category_titles.append(c.get("title"))
         rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
+        if not rp.get("messages"):
+            seed_text = rp.get("report_text") or ""
+            rp["messages"] = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
         rp["created_at_fa"] = rp.get("created_at", "-")
         reports.append(rp)
 
@@ -751,16 +835,20 @@ def admin_dashboard():
             "category_titles": t_category_titles,
         })
 
-    limit = max(50, min(1000, int(request.args.get("limit", "300") or 300)))
     q = (request.args.get("q") or "").strip()
     vf = {}
     if q:
-        code_devices = [x.get("device_id") for x in mdb["auth_user_devices"].find({"access_code": {"$regex": q, "$options": "i"}}, {"_id": 0, "device_id": 1}) if x.get("device_id")]
-        ors = [{"device_id": {"$regex": q, "$options": "i"}}, {"username": {"$regex": q, "$options": "i"}}, {"browser_name": {"$regex": q, "$options": "i"}}, {"os_name": {"$regex": q, "$options": "i"}}, {"device_model": {"$regex": q, "$options": "i"}}]
-        if code_devices:
-            ors.append({"device_id": {"$in": code_devices}})
-        vf = {"$or": ors}
-    visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(limit))
+        m = re.search(r"(\d+)", q)
+        if m:
+            uid = int(m.group(1))
+            user = mdb["users"].find_one({"id": uid}, {"_id": 0, "device_id": 1})
+            if user and user.get("device_id"):
+                vf = {"device_id": user.get("device_id")}
+            else:
+                vf = {"device_id": "__not_found__"}
+        else:
+            vf = {"device_id": {"$regex": q, "$options": "i"}}
+    visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(1500))
     code_by_device = {x.get("device_id"): x.get("access_code") for x in mdb["auth_user_devices"].find({}, {"_id": 0, "device_id": 1, "access_code": 1}) if x.get("device_id")}
     for v in visitors:
         if code_by_device.get(v.get("device_id")):
@@ -771,7 +859,54 @@ def admin_dashboard():
         devs = list(mdb["auth_user_devices"].find({"access_code": au.get("access_code")}, {"_id": 0, "last_seen_at": 1}))
         auth_users.append({**au, "device_count": len(devs), "last_device_seen": max([d.get("last_seen_at", "") for d in devs], default=None)})
 
-    online_by_page = {row.get("_id") or "unknown": int(row.get("count", 0)) for row in mdb["presence_sessions"].aggregate([{"$group": {"_id": "$page_key", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}, {"$limit": 20}])}
+    online_by_page = {}
+    latest_page_pipeline = [
+        {"$sort": {"updated_at": -1}},
+        {"$group": {"_id": "$device_id", "page_key": {"$first": "$page_key"}}},
+        {"$group": {"_id": "$page_key", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 20},
+    ]
+    for row in mdb["presence_sessions"].aggregate(latest_page_pipeline):
+        key = row.get("_id") or "unknown"
+        label = key
+        if key.startswith("/buy/"):
+            label = "صفحه خرید: " + key.replace("/buy/", "")
+        elif key == "/":
+            label = "صفحه اصلی"
+        elif key == "/my-videos":
+            label = "فایل‌های من"
+        elif key == "/messages":
+            label = "تیکت‌ها"
+        online_by_page[label] = int(row.get("count", 0))
+    activity_rows = []
+    for v in visitors:
+        did = v.get("device_id")
+        liked_titles = []
+        for lk in mdb["category_likes"].find({"device_id": did}, {"_id": 0, "category_id": 1}):
+            cat = cat_by_id.get(lk.get("category_id"))
+            if cat:
+                liked_titles.append(cat.get("title"))
+        user = mdb["users"].find_one({"device_id": did}, {"_id": 0, "id": 1})
+        access_titles = []
+        if user:
+            for ua in mdb["user_access"].find({"user_id": user.get("id")}, {"_id": 0, "category_id": 1}):
+                c = cat_by_id.get(ua.get("category_id"))
+                if c:
+                    access_titles.append(c.get("title"))
+        report_count = mdb["reports"].count_documents({"device_id": did})
+        activity_rows.append({
+            "user_id": user.get("id") if user else None,
+            "device_id": did,
+            "browser_name": v.get("browser_name") or "-",
+            "os_name": v.get("os_name") or "-",
+            "last_seen_at": format_clock(v.get("last_seen_at")),
+            "visit_count": int(v.get("visit_count", 0)),
+            "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
+            "access_titles": "، ".join(access_titles) if access_titles else "-",
+            "report_count": report_count,
+            "report_link": f"/admin?q={did}",
+        })
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
         "total_visitors": mdb["visitors"].count_documents({}),
@@ -781,7 +916,7 @@ def admin_dashboard():
         "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
     })
 
-    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, online_by_page=online_by_page, stats=base_stats, visitors_limit=limit, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).isoformat(), server_day=datetime.now(TEHRAN_TZ).strftime("%A"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"))
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
 
 @app.get("/admin/receipt/<path:filename>")
@@ -826,6 +961,20 @@ def admin_delete_category(category_id):
     mdb["videos"].delete_many({"category_id": category_id})
     mdb["user_access"].delete_many({"category_id": category_id})
     mdb["categories"].delete_one({"id": category_id})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/categories/<int:category_id>/update")
+@admin_required
+def admin_update_category(category_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    title = (request.form.get("title") or "").strip()
+    payment_text = (request.form.get("payment_text") or "").strip()
+    if not title or not payment_text:
+        return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
+    mdb["categories"].update_one({"id": category_id}, {"$set": {"title": title, "payment_text": payment_text, "updated_at": now_iso()}})
     return jsonify({"ok": True})
 
 
@@ -931,7 +1080,10 @@ def admin_reply_report(rid):
     reply = (request.form.get("reply") or request.form.get("reply_text") or "").strip()
     if not reply:
         return jsonify({"ok": False, "message": "پاسخ خالی است"}), 400
-    mdb["reports"].update_one({"id": rid}, {"$set": {"admin_reply": reply, "replied_at": now_iso(), "user_seen_at": None}})
+    row = mdb["reports"].find_one({"id": rid}, {"_id": 0, "messages": 1})
+    msgs = list((row or {}).get("messages") or [])
+    msgs.append({"sender": "admin", "text": reply, "at": now_iso()})
+    mdb["reports"].update_one({"id": rid}, {"$set": {"admin_reply": reply, "replied_at": now_iso(), "user_seen_at": None, "messages": msgs}})
     return jsonify({"ok": True})
 
 
@@ -1014,6 +1166,18 @@ def admin_backup_db():
     return send_file(out_path, as_attachment=True, download_name="mongo_backup.json")
 
 
+@app.get("/admin/api/backup-receipts")
+@admin_required
+def admin_backup_receipts():
+    zip_path = os.path.join(BASE_DIR, "receipts_backup.zip")
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name in os.listdir(RECEIPTS_DIR):
+            full = os.path.join(RECEIPTS_DIR, name)
+            if os.path.isfile(full):
+                zf.write(full, arcname=name)
+    return send_file(zip_path, as_attachment=True, download_name="receipts_backup.zip")
+
+
 @app.get("/admin/api/live-stats")
 @admin_required
 def admin_live_stats():
@@ -1031,10 +1195,28 @@ def admin_live_stats():
     y_end_dt = today_start_dt
     today_start, today_end = today_start_dt.isoformat(), today_end_dt.isoformat()
     y_start, y_end = y_start_dt.isoformat(), y_end_dt.isoformat()
+    online_devices = list(mdb["presence_sessions"].find({"updated_at": {"$gte": online_since}}, {"_id": 0, "device_id": 1}))
+    os_counts = {"ios": 0, "android": 0, "windows": 0}
+    seen = set()
+    for row in online_devices:
+        did = row.get("device_id")
+        if not did or did in seen:
+            continue
+        seen.add(did)
+        vis = mdb["visitors"].find_one({"device_id": did}, {"_id": 0, "os_name": 1})
+        os_name = (vis or {}).get("os_name", "").lower()
+        if "ios" in os_name:
+            os_counts["ios"] += 1
+        elif "android" in os_name:
+            os_counts["android"] += 1
+        elif "windows" in os_name:
+            os_counts["windows"] += 1
     stats = {
         "online_total": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}}),
         "active_last_minute": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": active_since}}),
-        "downloading_now": mdb["presence_sessions"].count_documents({"updated_at": {"$gte": online_since}, "page_key": {"$regex": "buy|my-videos|watch"}}),
+        "online_ios": os_counts["ios"],
+        "online_android": os_counts["android"],
+        "online_windows": os_counts["windows"],
         "total_reports": mdb["reports"].count_documents({}),
         "total_visitors": mdb["visitors"].count_documents({}),
         "total_purchases": mdb["purchase_requests"].count_documents({}),
@@ -1052,17 +1234,31 @@ def admin_live_stats():
     }
     latest_purchase = mdb["purchase_requests"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
     latest_report = mdb["reports"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
+    latest_testimonial = mdb["testimonials"].find_one({}, {"id": 1, "_id": 0}, sort=[("id", -1)])
     stats["latest_purchase_id"] = int((latest_purchase or {}).get("id") or 0)
     stats["latest_report_id"] = int((latest_report or {}).get("id") or 0)
-    stats["server_now"] = datetime.now(TEHRAN_TZ).isoformat()
-    stats["server_day"] = datetime.now(TEHRAN_TZ).strftime("%A")
+    stats["latest_testimonial_id"] = int((latest_testimonial or {}).get("id") or 0)
+    stats["server_now"] = datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p")
+    stats["server_day"] = datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y")
 
     pipeline = [
         {"$match": {"updated_at": {"$gte": online_since}}},
         {"$group": {"_id": "$page_key", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
-    online_by_page = {row.get("_id") or "unknown": int(row.get("count", 0)) for row in mdb["presence_sessions"].aggregate(pipeline)}
+    online_by_page = {}
+    for row in mdb["presence_sessions"].aggregate(pipeline):
+        key = row.get("_id") or "unknown"
+        label = key
+        if key.startswith("/buy/"):
+            label = "صفحه خرید: " + key.replace("/buy/", "")
+        elif key == "/":
+            label = "صفحه اصلی"
+        elif key == "/my-videos":
+            label = "فایل‌های من"
+        elif key == "/messages":
+            label = "تیکت‌ها"
+        online_by_page[label] = int(row.get("count", 0))
     return jsonify({"ok": True, "stats": stats, "online_by_page": online_by_page, "mongo_ok": True})
 
 
@@ -1072,6 +1268,16 @@ def admin_update_settings():
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    duration_raw = request.form.get("global_notice_duration_ms") or "5000"
+    try:
+        duration = max(1000, min(20000, int(duration_raw)))
+    except Exception:
+        duration = 5000
+    selected_pages = request.form.getlist("global_notice_pages")
+    allowed_pages = {"home", "my-videos", "buy"}
+    selected_pages = [p for p in selected_pages if p in allowed_pages]
+    if not selected_pages:
+        selected_pages = ["home"]
     updates = {
         "site_update_mode": "1" if request.form.get("site_update_mode") == "1" else "0",
         "site_domain_move_mode": "1" if request.form.get("site_domain_move_mode") == "1" else "0",
@@ -1079,10 +1285,39 @@ def admin_update_settings():
         "maintenance_fallback_url": (request.form.get("maintenance_fallback_url") or "http://mxdomain.top:5000").strip(),
         "utc_adjust_hours": str(int(request.form.get("utc_adjust_hours") or DEFAULT_UTC_ADJUST_HOURS)),
         "max_devices_per_user": str(max(1, min(10, int(request.form.get("max_devices_per_user") or DEFAULT_MAX_DEVICES_PER_USER)))),
+        "purchase_enabled": "1" if request.form.get("purchase_enabled") == "1" else "0",
+        "purchase_disabled_message": (request.form.get("purchase_disabled_message") or "").strip() or "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید.",
+        "global_notice_enabled": "1" if request.form.get("global_notice_enabled") == "1" else "0",
+        "global_notice_text": (request.form.get("global_notice_text") or "").strip(),
+        "global_notice_color": (request.form.get("global_notice_color") or "#0ea5e9").strip()[:32],
+        "global_notice_duration_ms": str(duration),
+        "global_notice_pages": ",".join(selected_pages),
     }
     for k, v in updates.items():
         mdb["app_settings"].update_one({"key": k}, {"$set": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True, "message": "تنظیمات ذخیره شد."})
+
+
+@app.get("/api/global-notice")
+def api_global_notice():
+    page = (request.args.get("page") or "").strip()
+    allowed_pages = {"home", "my-videos", "buy"}
+    if page not in allowed_pages:
+        return jsonify({"ok": True, "enabled": False})
+    enabled = setting_bool("global_notice_enabled", False)
+    pages = {p.strip() for p in get_setting("global_notice_pages", "home,my-videos,buy").split(",") if p.strip()}
+    if (not enabled) or page not in pages:
+        return jsonify({"ok": True, "enabled": False})
+    text = get_setting("global_notice_text", "").strip()
+    if not text:
+        return jsonify({"ok": True, "enabled": False})
+    return jsonify({
+        "ok": True,
+        "enabled": True,
+        "text": text,
+        "color": get_setting("global_notice_color", "#0ea5e9"),
+        "duration_ms": max(1000, min(20000, setting_int("global_notice_duration_ms", 5000))),
+    })
 
 
 @app.route("/admin/logout")

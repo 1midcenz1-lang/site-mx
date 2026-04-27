@@ -1,4 +1,43 @@
 ﻿(function () {
+  function showPopup(message, tone) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>${tone === "error" ? "خطا" : "پیام"}</h3>
+        <p>${message}</p>
+        <button class="btn ${tone === "error" ? "btn-danger" : ""}" type="button">باشه</button>
+      </div>
+    `;
+    const close = () => backdrop.remove();
+    backdrop.querySelector("button")?.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) close();
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  function showCornerFlash(message) {
+    const box = document.createElement("div");
+    box.className = "iphone-corner-flash";
+    box.innerHTML = `<div class="iphone-corner-flash-arrow">⬇</div><div>${message}</div>`;
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 4200);
+  }
+
+  function showSiteNotice(message, color, durationMs) {
+    const box = document.createElement("div");
+    box.className = "iphone-corner-flash";
+    if (color) box.style.borderColor = color;
+    box.innerHTML = `<div>${message}</div>`;
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), Math.max(1000, Number(durationMs || 5000)));
+  }
+
+  window.MX = window.MX || {};
+  window.MX.showPopup = showPopup;
+  window.alert = (msg) => showPopup(String(msg || ""));
+
   function isIPhone() {
     const ua = navigator.userAgent || "";
     const isiPhoneUA = /iPhone|iPod/i.test(ua);
@@ -36,20 +75,36 @@
     return `mx-${hash32(parts.join("|"))}`;
   }
 
-  function enforceIPhoneChrome() {
+  function showIphoneCompassAlert() {
     if (!isIPhone() || isChromeOnIOS()) return;
-    if (window.location.pathname === "/iphone-chrome-required") return;
-    const current = window.location.href;
-    const encoded = encodeURIComponent(current);
-    const deepLink = `googlechrome://navigate?url=${encoded}`;
-    const fallback = `/iphone-chrome-required?next=${encoded}`;
-    window.location.replace(fallback + `&open=${encodeURIComponent(deepLink)}`);
+    const shown = Number(localStorage.getItem("mx_ios_popup_count") || "0");
+    if (shown >= 3) return;
+    localStorage.setItem("mx_ios_popup_count", String(shown + 1));
+    showCornerFlash("به دلیل استفاده از آیفون، اگر با مرورگری جز سافاری یا کروم هستید حتما سمت راست پایین روی قطب‌نما کلیک کنید.<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست.");
+  }
+
+  function attachIphoneBuyAlerts() {
+    if (!isIPhone() || isChromeOnIOS()) return;
+    const buyLinks = document.querySelectorAll("a[href^='/buy/']");
+    buyLinks.forEach((link) => {
+      link.addEventListener("click", () => {
+        showCornerFlash("به دلیل استفاده از آیفون، اگر با مرورگری جز سافاری یا کروم هستید حتما سمت راست پایین روی قطب‌نما کلیک کنید.<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست.");
+      });
+    });
   }
 
   function initDevice() {
     let deviceId = localStorage.getItem("mx_device_id");
+    if (deviceId && /^mx-[0-9a-f]{8}$/i.test(deviceId)) {
+      deviceId = "";
+      localStorage.removeItem("mx_device_id");
+    }
     if (!deviceId) {
-      deviceId = buildDeviceFingerprint();
+      if (window.crypto && window.crypto.randomUUID) {
+        deviceId = `mx-${window.crypto.randomUUID()}`;
+      } else {
+        deviceId = `${buildDeviceFingerprint()}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      }
       localStorage.setItem("mx_device_id", deviceId);
     }
     document.cookie = `mx_device_id=${encodeURIComponent(deviceId)}; Max-Age=31536000; Path=/; SameSite=Lax`;
@@ -81,8 +136,33 @@
     }
   }
 
+  function getPageKey() {
+    const p = window.location.pathname || "/";
+    if (p === "/") return "home";
+    if (p === "/my-videos") return "my-videos";
+    if (p.startsWith("/buy/")) return "buy";
+    return "";
+  }
+
+  async function maybeShowGlobalNotice() {
+    const page = getPageKey();
+    if (!page) return;
+    try {
+      const res = await fetch(`/api/global-notice?page=${encodeURIComponent(page)}`);
+      const data = await res.json();
+      if (!(res.ok && data.ok && data.enabled && data.text)) return;
+      const key = `mx_global_notice_seen_${page}_${btoa(unescape(encodeURIComponent(data.text))).slice(0, 20)}`;
+      if (sessionStorage.getItem(key) === "1") return;
+      sessionStorage.setItem(key, "1");
+      showSiteNotice(data.text, data.color, data.duration_ms);
+    } catch (_err) {
+      // silent
+    }
+  }
+
   async function setup() {
-    enforceIPhoneChrome();
+    showIphoneCompassAlert();
+    attachIphoneBuyAlerts();
     const onboard = initDevice();
     const deviceId = onboard.deviceId;
 
@@ -92,7 +172,8 @@
 
     registerVisit(deviceId);
     sendPresence(deviceId);
-    setInterval(() => sendPresence(deviceId), 30000);
+    setInterval(() => sendPresence(deviceId), 10000);
+    maybeShowGlobalNotice();
     const videosBadge = document.getElementById("my-videos-badge");
     if (videosBadge) {
       try {
@@ -209,9 +290,9 @@
           if (reportDeviceInput) reportDeviceInput.value = deviceId;
           if ("Notification" in window) {
             if (Notification.permission === "granted") {
-              alert("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
+              showPopup("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
             } else {
-              alert("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+              showPopup("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
             }
           }
         } catch (_err) {

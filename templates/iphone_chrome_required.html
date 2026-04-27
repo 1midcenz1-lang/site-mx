@@ -1,14 +1,36 @@
 {% extends "base.html" %}
-{% block title %}فقط Chrome در iPhone{% endblock %}
+{% block title %}مرورگر مجاز در iPhone{% endblock %}
 {% block content %}
 <section class="form-card">
-  <h2>ورود فقط با Chrome</h2>
-  <p>برای کاربران iPhone این سایت فقط داخل مرورگر <strong>Chrome</strong> قابل استفاده است.</p>
-  <p>لطفا روی دکمه زیر بزنید تا همین لینک با Chrome باز شود.</p>
-  {% if open_url %}
-  <a class="btn" href="{{ open_url }}">باز کردن در Chrome</a>
-  {% endif %}
-  <a class="btn btn-ghost" href="https://apps.apple.com/app/google-chrome/id535886823" target="_blank" rel="noopener">نصب Chrome از App Store</a>
+  <h2>مرورگر باید با Chrome یا Safari باز شود</h2>
+  <p>در iPhone، برای استفاده کامل سایت لطفا لینک را با <strong>Chrome</strong> یا <strong>Safari</strong> باز کنید.</p>
+  <p>روی آیکون <strong>🧭</strong> (قطب‌نما) در گوشه مرورگر بزنید و گزینه باز کردن با Safari/Chrome را انتخاب کنید.</p>
+  <a class="btn" href="#" id="auto-open-btn">کلیک کنید روی این آیکون 🧭</a>
+  <a class="btn btn-ghost" href="googlechrome://navigate?url={{ next_url|urlencode }}">باز کردن مستقیم با Chrome</a>
+  <a class="btn btn-ghost" href="{{ next_url }}">باز کردن با Safari</a>
   <a class="btn btn-ghost" href="{{ next_url }}">تلاش دوباره</a>
 </section>
+<script>
+  (function () {
+    const target = "{{ next_url|e }}";
+    const chromeTarget = `googlechrome://navigate?url=${encodeURIComponent(target)}`;
+    const safariTarget = target.replace(/^https:\/\//i, "x-safari-https://").replace(/^http:\/\//i, "x-safari-http://");
+    const autoBtn = document.getElementById("auto-open-btn");
+    if (autoBtn) {
+      autoBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.location.href = chromeTarget;
+        setTimeout(() => {
+          window.location.href = safariTarget || target;
+        }, 900);
+      });
+    }
+    setTimeout(() => {
+      window.location.href = chromeTarget;
+      setTimeout(() => {
+        window.location.href = safariTarget || target;
+      }, 900);
+    }, 700);
+  })();
+</script>
 {% endblock %}
