@@ -6,13 +6,6 @@
     return isiPhoneUA || isiPadAsMac;
   }
 
-  function isSupportedIOSBrowser() {
-    const ua = navigator.userAgent || "";
-    const isChrome = /CriOS/i.test(ua);
-    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
-    return isChrome || isSafari;
-  }
-
   function hash32(input) {
     let h = 2166136261;
     for (let i = 0; i < input.length; i += 1) {
@@ -39,13 +32,19 @@
     return `mx-${hash32(parts.join("|"))}`;
   }
 
-  function enforceIOSBrowserSupport() {
-    if (!isIPhone() || isSupportedIOSBrowser()) return;
-    if (window.location.pathname === "/iphone-chrome-required") return;
-    const current = window.location.href;
-    const encoded = encodeURIComponent(current);
-    const fallback = `/iphone-chrome-required?next=${encoded}`;
-    window.location.replace(fallback);
+  function showIphoneCompassAlert() {
+    if (!isIPhone()) return;
+    alert("برای آیفون روی آیکون 🧭 (قطب‌نما) بزنید و لینک را با Chrome یا Safari باز کنید.");
+  }
+
+  function attachIphoneBuyAlerts() {
+    if (!isIPhone()) return;
+    const buyLinks = document.querySelectorAll("a[href^='/buy/']");
+    buyLinks.forEach((link) => {
+      link.addEventListener("click", () => {
+        alert("برای آیفون: قبل از خرید روی آیکون 🧭 بزنید و با Chrome یا Safari ادامه بدید.");
+      });
+    });
   }
 
   function initDevice() {
@@ -84,7 +83,8 @@
   }
 
   async function setup() {
-    enforceIOSBrowserSupport();
+    showIphoneCompassAlert();
+    attachIphoneBuyAlerts();
     const onboard = initDevice();
     const deviceId = onboard.deviceId;
 

@@ -194,6 +194,10 @@ def register_visit(device_id: str):
     if mdb is None:
         return
     meta = parse_user_agent(request.headers.get("User-Agent", ""))
+    print(
+        f"[visit] device_id={device_id} browser={meta.get('browser_name')} "
+        f"os={meta.get('os_name')} model={meta.get('device_model')}"
+    )
     row = mdb["visitors"].find_one({"device_id": device_id})
     if not row:
         mdb["visitors"].insert_one({
@@ -288,15 +292,7 @@ def modes():
         if path.startswith("/api/"):
             return jsonify({"ok": False, "message": "سایت منتقل شده", "target_url": target}), 503
         return redirect(url_for("site_domain_move_page"))
-    ua = request.headers.get("User-Agent", "")
-    is_ios = bool(re.search(r"iphone|ipod|ipad", ua, flags=re.IGNORECASE))
-    is_chrome_ios = bool(re.search(r"crios", ua, flags=re.IGNORECASE))
-    is_safari_ios = bool(re.search(r"safari", ua, flags=re.IGNORECASE)) and not bool(re.search(r"crios|fxios|edgios|opios", ua, flags=re.IGNORECASE))
-    if is_ios and not (is_chrome_ios or is_safari_ios):
-        if path.startswith("/api/"):
-            return jsonify({"ok": False, "need_supported_ios_browser": True}), 403
-        if path != "/iphone-chrome-required":
-            return redirect(url_for("iphone_chrome_required_page", next=request.url))
+    return None
 
 
 @app.route("/")
