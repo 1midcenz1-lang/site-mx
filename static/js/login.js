@@ -74,7 +74,7 @@
           resultBox.textContent = data.message || "خطا در ساخت کد";
           return;
         }
-        alert(`کد شما: ${data.access_code}\nحتما این کد را نگه دارید؛ در صورت گم شدن دسترسی شما قطع می‌شود.`);
+        (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)(`کد شما: ${data.access_code}\nحتما این کد را نگه دارید؛ در صورت گم شدن دسترسی شما قطع می‌شود.`);
         resultBox.textContent = `کد ساخته شد: ${data.access_code}`;
         setTimeout(() => {
           window.location.href = getNextUrl();

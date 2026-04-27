@@ -1,4 +1,26 @@
 ﻿(function () {
+  function showPopup(message, tone) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>${tone === "error" ? "خطا" : "پیام"}</h3>
+        <p>${message}</p>
+        <button class="btn ${tone === "error" ? "btn-danger" : ""}" type="button">باشه</button>
+      </div>
+    `;
+    const close = () => backdrop.remove();
+    backdrop.querySelector("button")?.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) close();
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  window.MX = window.MX || {};
+  window.MX.showPopup = showPopup;
+  window.alert = (msg) => showPopup(String(msg || ""));
+
   function isIPhone() {
     const ua = navigator.userAgent || "";
     const isiPhoneUA = /iPhone|iPod/i.test(ua);
@@ -34,7 +56,7 @@
 
   function showIphoneCompassAlert() {
     if (!isIPhone()) return;
-    alert("برای آیفون روی آیکون 🧭 (قطب‌نما) بزنید و لینک را با Chrome یا Safari باز کنید.");
+    showPopup("برای آیفون روی آیکون 🧭 (قطب‌نما) بزنید و لینک را با Chrome یا Safari باز کنید.");
   }
 
   function attachIphoneBuyAlerts() {
@@ -42,7 +64,7 @@
     const buyLinks = document.querySelectorAll("a[href^='/buy/']");
     buyLinks.forEach((link) => {
       link.addEventListener("click", () => {
-        alert("برای آیفون: قبل از خرید روی آیکون 🧭 بزنید و با Chrome یا Safari ادامه بدید.");
+        showPopup("برای آیفون: قبل از خرید روی آیکون 🧭 بزنید و با Chrome یا Safari ادامه بدید.");
       });
     });
   }
@@ -211,9 +233,9 @@
           if (reportDeviceInput) reportDeviceInput.value = deviceId;
           if ("Notification" in window) {
             if (Notification.permission === "granted") {
-              alert("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
+              showPopup("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
             } else {
-              alert("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+              showPopup("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
             }
           }
         } catch (_err) {

@@ -34,9 +34,9 @@
     const guideKey = `mx_notif_guide_shown_${new Date().toISOString().slice(0, 10)}`;
     if (localStorage.getItem(guideKey) === "1") return;
     if (Notification.permission === "granted") {
-      alert("پس از تایید ادمین از طریق نوتیف به شما اطلاع داده میشود.");
+      (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)("پس از تایید ادمین از طریق نوتیف به شما اطلاع داده میشود.");
     } else {
-      alert("لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+      (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)("لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
       if (Notification.permission === "default") {
         Notification.requestPermission().catch(() => {});
       }

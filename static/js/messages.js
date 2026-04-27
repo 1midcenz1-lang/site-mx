@@ -54,7 +54,7 @@
             });
             const data = await res.json();
             if (!res.ok || !data.ok) {
-              alert(data.message || "خطا در ارسال پیام");
+              (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)(data.message || "خطا در ارسال پیام");
               return;
             }
             loadMessages();
