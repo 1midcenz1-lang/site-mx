@@ -8,6 +8,7 @@
   const notifToggleBtn = document.getElementById("notif-toggle-btn");
   const onlineByPageBody = document.getElementById("online-by-page-body");
   const settingsForm = document.getElementById("settings-form");
+  const backupAllBtn = document.getElementById("download-all-backup-btn");
   let lastPurchaseId = 0;
   let lastReportId = 0;
   const NOTIF_KEY = "mx_admin_notif_enabled";
@@ -86,6 +87,33 @@
       window.location.reload();
     });
   }
+
+  if (backupAllBtn) {
+    backupAllBtn.addEventListener("click", () => {
+      window.open("/admin/api/backup-db", "_blank");
+      setTimeout(() => {
+        window.open("/admin/api/backup-receipts", "_blank");
+      }, 600);
+    });
+  }
+
+  document.querySelectorAll(".save-category-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.categoryId;
+      const titleInput = document.querySelector(`.category-title-input[data-category-id='${id}']`);
+      const paymentInput = document.querySelector(`.category-payment-input[data-category-id='${id}']`);
+      const fd = new FormData();
+      fd.append("title", titleInput ? titleInput.value : "");
+      fd.append("payment_text", paymentInput ? paymentInput.value : "");
+      const res = await fetch(`/admin/api/categories/${id}/update`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.message || "خطا در ذخیره دسته");
+        return;
+      }
+      alert("دسته بروزرسانی شد");
+    });
+  });
 
   document.querySelectorAll(".delete-category-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {

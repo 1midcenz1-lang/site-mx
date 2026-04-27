@@ -44,6 +44,24 @@
     localStorage.setItem(guideKey, "1");
   }
 
+  function showZipHelpModal() {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>راهنمای باز کردن ZIP</h3>
+        <p>دانلود انجام شد ✅ لطفا ویدیوهای آموزش باز کردن ZIP (iPhone/Android) را در همین صفحه ببینید.</p>
+        <button class="btn" type="button">باشه</button>
+      </div>
+    `;
+    const btn = backdrop.querySelector("button");
+    if (btn) btn.addEventListener("click", () => backdrop.remove());
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    });
+    document.body.appendChild(backdrop);
+  }
+
   async function loadVideos() {
     listBox.innerHTML = "";
     approvedText.classList.remove("error");
@@ -99,7 +117,16 @@
               approvedText.textContent = "در iPhone لینک دانلود با مرورگر پیش‌فرض (Safari/Chrome) باز می‌شود.";
             });
           }
+          link.addEventListener("click", () => {
+            setTimeout(() => {
+              showZipHelpModal();
+            }, 1100);
+          });
           card.appendChild(link);
+          const info = document.createElement("div");
+          info.className = "tiny-text";
+          info.textContent = `حجم: ${v.file_size || "-"}${v.file_count ? ` | تعداد فایل داخل ZIP: ${v.file_count}` : ""}`;
+          card.appendChild(info);
           card.appendChild(document.createElement("br"));
           card.appendChild(document.createElement("br"));
         });

@@ -353,6 +353,24 @@ th { background: rgba(30, 41, 59, 0.75); }
 .tutorial-card h3 {
   margin-top: 0;
 }
+.ticket-thread {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+}
+.ticket-msg {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.ticket-user {
+  background: rgba(59, 130, 246, 0.16);
+}
+.ticket-admin {
+  background: rgba(16, 185, 129, 0.16);
+}
 
 .status-page {
   width: min(100%, 760px);
