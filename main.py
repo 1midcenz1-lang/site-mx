@@ -292,6 +292,14 @@ def setting_int(key: str, default: int) -> int:
         return default
 
 
+def duration_ms_to_seconds_text(value_ms: int) -> str:
+    try:
+        seconds = max(1, int(round(int(value_ms) / 1000)))
+    except Exception:
+        seconds = 5
+    return str(seconds)
+
+
 def seed_mongo():
     os.makedirs(RECEIPTS_DIR, exist_ok=True)
     os.makedirs(VIDEOS_DIR, exist_ok=True)
@@ -893,7 +901,7 @@ def admin_dashboard():
     mdb = mongo_db()
     base_stats = {"online_total": 0, "online_ios": 0, "online_android": 0, "online_windows": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
     if mdb is None:
-        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
     active_per_category = {row["_id"]: int(row.get("count", 0)) for row in mdb["user_access"].aggregate([{"$group": {"_id": "$category_id", "count": {"$sum": 1}}}])}
@@ -1020,7 +1028,7 @@ def admin_dashboard():
         "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
     })
 
-    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
 
 @app.get("/admin/receipt/<path:filename>")
@@ -1445,9 +1453,9 @@ def admin_update_settings():
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    duration_raw = request.form.get("global_notice_duration_ms") or "5000"
+    duration_raw = request.form.get("global_notice_duration_seconds") or "5"
     try:
-        duration = max(1000, min(20000, int(duration_raw)))
+        duration = max(1, int(duration_raw)) * 1000
     except Exception:
         duration = 5000
     selected_pages = request.form.getlist("global_notice_pages")
@@ -1493,7 +1501,7 @@ def api_global_notice():
         "enabled": True,
         "text": text,
         "color": get_setting("global_notice_color", "#0ea5e9"),
-        "duration_ms": max(1000, min(20000, setting_int("global_notice_duration_ms", 5000))),
+        "duration_ms": max(1000, setting_int("global_notice_duration_ms", 5000)),
     })
 
 

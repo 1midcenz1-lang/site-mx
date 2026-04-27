@@ -11,16 +11,11 @@
   const backupAllBtn = document.getElementById("download-all-backup-btn");
   const purchaseRowsBody = document.getElementById("purchase-rows-body");
   const reportRowsBody = document.getElementById("report-rows-body");
-  const unseenBanner = document.getElementById("admin-unseen-banner");
-  const unseenText = document.getElementById("admin-unseen-text");
   const liveToast = document.getElementById("admin-live-toast");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
   let lastTestimonialId = 0;
-  let unseenPurchaseCount = Number(localStorage.getItem("mx_unseen_purchase") || "0");
-  let unseenReportCount = Number(localStorage.getItem("mx_unseen_report") || "0");
-  let unseenTestimonialCount = Number(localStorage.getItem("mx_unseen_testimonial") || "0");
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
   const categoryChips = Array.from(document.querySelectorAll(".category-title-input")).map((input) => ({
@@ -80,6 +75,22 @@
     return `<button class="btn small reset-pending-btn" type="button" data-request-id="${rid}">برگشت به pending</button>`;
   }
 
+  function statusBadge(text) {
+    const value = String(text || "").trim();
+    if (value.includes("فیک")) return `<span class="status-pill status-pill-fake">🟧 ${escapeHtml(value)}</span>`;
+    if (value.includes("تایید شده")) return `<span class="status-pill status-pill-ok">🟩 ${escapeHtml(value)}</span>`;
+    if (value.includes("تایید نشده")) return `<span class="status-pill status-pill-bad">🟥 ${escapeHtml(value)}</span>`;
+    return `<span class="status-pill status-pill-pending">🟨 ${escapeHtml(value || "-")}</span>`;
+  }
+
+  function applyStatusBadges() {
+    document.querySelectorAll(".status-cell").forEach((cell) => {
+      const raw = cell.getAttribute("data-raw-status") || cell.textContent || "";
+      cell.setAttribute("data-raw-status", raw);
+      cell.innerHTML = statusBadge(raw);
+    });
+  }
+
   document.addEventListener("click", async (evt) => {
     const target = evt.target;
     if (!(target instanceof Element)) return;
@@ -90,6 +101,17 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return showPopup(data.message || "خطا در بازگشت به pending");
       showPopup("وضعیت به pending برگشت.");
+      const row = resetBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "در انتظار بررسی");
+          cells[6].innerHTML = statusBadge("در انتظار بررسی");
+        }
+        if (cells[8]) cells[8].textContent = "-";
+        if (cells[9]) cells[9].innerHTML = renderPendingActions(rid, row.dataset.requestedCategory || "");
+        row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+      }
       refreshLiveStats();
       refreshLiveFeed();
       return;
@@ -107,6 +129,16 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return showPopup(data.message || "خطا در رد درخواست");
       showPopup("رد شد");
+      const row = rejectBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "تایید نشده");
+          cells[6].innerHTML = statusBadge("تایید نشده");
+        }
+        if (cells[8]) cells[8].textContent = reason || "-";
+        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+      }
       refreshLiveStats();
       refreshLiveFeed();
       return;
@@ -123,6 +155,16 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return showPopup(data.message || "خطا در ثبت فیک");
       showPopup("به عنوان فیک علامت‌گذاری شد.");
+      const row = fakeBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "تایید نشده | فیک");
+          cells[6].innerHTML = statusBadge("تایید نشده | فیک");
+        }
+        if (cells[8]) cells[8].textContent = reason || "-";
+        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+      }
       refreshLiveStats();
       refreshLiveFeed();
       return;
@@ -171,18 +213,6 @@
     liveToast.classList.remove("hidden");
     setTimeout(() => liveToast.classList.add("hidden"), 3000);
   }
-
-  function renderUnseenBanner() {
-    const totalUnseen = unseenPurchaseCount + unseenReportCount + unseenTestimonialCount;
-    if (!unseenBanner || !unseenText) return;
-    if (totalUnseen > 0) {
-      unseenBanner.classList.remove("hidden");
-      unseenText.textContent = `خرید: ${unseenPurchaseCount} | ریپورت: ${unseenReportCount} | نظر: ${unseenTestimonialCount}`;
-    } else {
-      unseenBanner.classList.add("hidden");
-    }
-  }
-  renderUnseenBanner();
 
   function renderNotifToggle() {
     if (!notifToggleBtn) return;
@@ -412,7 +442,10 @@
       const row = form.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "تایید شده";
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "تایید شده");
+          cells[6].innerHTML = statusBadge("تایید شده");
+        }
         if (cells[8]) cells[8].textContent = "-";
         if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
       }
@@ -495,13 +528,14 @@
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
             <td>${escapeHtml(r.created_at_clock)}<br><span class="tiny-text">${escapeHtml(r.created_at_day)}</span></td>
             <td><a href="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" target="_blank">مشاهده</a></td>
-            <td>${escapeHtml(r.status_label)}</td>
+            <td class="status-cell" data-raw-status="${escapeHtml(r.status_label)}">${statusBadge(r.status_label)}</td>
             <td>${escapeHtml(r.user_note || "-")}</td>
             <td>${escapeHtml(r.admin_note || "-")}</td>
             <td>${r.status === "pending" ? renderPendingActions(r.id, r.requested_category) : renderResetAction(r.id)}</td>
           </tr>
         `).join("");
         purchaseRowsBody.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+        applyStatusBadges();
       }
       if (reportRowsBody && Array.isArray(data.reports)) {
         reportRowsBody.innerHTML = data.reports.map((rp) => `
@@ -548,24 +582,20 @@
           notifyAdmin("درخواست خرید جدید", `${unseenPurchase} خرید جدید ثبت شد.`);
           showLiveToast("🛒 خرید جدید ثبت شد");
           lastPurchaseId = latestPurchase;
-          unseenPurchaseCount += unseenPurchase;
-          localStorage.setItem("mx_unseen_purchase", String(unseenPurchaseCount));
         }
         if (unseenReport > 0) {
           notifyAdmin("ریپورت جدید", `${unseenReport} ریپورت جدید ثبت شد.`);
           showLiveToast("📩 ریپورت جدید ثبت شد");
           lastReportId = latestReport;
-          unseenReportCount += unseenReport;
-          localStorage.setItem("mx_unseen_report", String(unseenReportCount));
         }
         if (unseenTestimonial > 0) {
           notifyAdmin("نظر جدید", `${unseenTestimonial} نظر جدید ثبت شد.`);
           showLiveToast("💬 نظر جدید ثبت شد");
           lastTestimonialId = latestTestimonial;
-          unseenTestimonialCount += unseenTestimonial;
-          localStorage.setItem("mx_unseen_testimonial", String(unseenTestimonialCount));
         }
-        renderUnseenBanner();
+        if (unseenPurchase > 0 || unseenReport > 0 || unseenTestimonial > 0) {
+          refreshLiveFeed();
+        }
         if (onlineByPageBody && data.online_by_page) {
           const rows = Object.entries(data.online_by_page)
             .map(([page, count]) => `<tr><td>${page}</td><td>${count}</td></tr>`)
@@ -578,7 +608,8 @@
     };
     refreshLiveStats();
     refreshLiveFeed();
-    setInterval(refreshLiveStats, 1000);
-    setInterval(refreshLiveFeed, 1500);
+    applyStatusBadges();
+    setInterval(refreshLiveStats, 700);
+    setInterval(refreshLiveFeed, 900);
   }
 })();

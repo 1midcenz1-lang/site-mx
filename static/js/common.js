@@ -236,6 +236,7 @@
       reportToggle.addEventListener("click", () => {
         const isHidden = reportPanel.classList.toggle("hidden");
         if (!isHidden) {
+          if (reportTypeSelect) reportTypeSelect.value = "مستحجن";
           reportPanel.scrollIntoView({ behavior: "smooth", block: "start" });
           const textArea = reportForm ? reportForm.querySelector("textarea[name='report_text']") : null;
           if (textArea) textArea.focus({ preventScroll: true });
