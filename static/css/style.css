@@ -142,6 +142,21 @@ body {
 }
 .messages-fab.has-alert { animation: pulse 1.3s infinite; }
 .messages-fab.has-alert span:first-child { animation: bellShake .8s ease-in-out infinite; display: inline-block; }
+.fab-count {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,.35);
+}
 .alert-banner {
   margin-bottom: 12px;
   background: rgba(245, 158, 11, 0.2);
@@ -426,19 +441,19 @@ th { background: rgba(30, 41, 59, 0.75); }
 }
 .ticket-thread {
   display: grid;
-  gap: 6px;
-  max-height: 220px;
+  gap: 10px;
+  max-height: 290px;
   overflow: auto;
   background: rgba(15, 23, 42, 0.45);
-  padding: 8px;
-  border-radius: 10px;
+  padding: 12px;
+  border-radius: 14px;
 }
 .ticket-msg {
-  padding: 8px 10px;
-  border-radius: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
   border: 1px solid var(--line);
   font-size: 13px;
-  line-height: 1.8;
+  line-height: 1.9;
 }
 .ticket-user {
   background: rgba(59, 130, 246, 0.16);

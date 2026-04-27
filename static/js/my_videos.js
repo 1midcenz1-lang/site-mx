@@ -1,7 +1,6 @@
 ﻿(function () {
   const approvedText = document.getElementById("approved-text");
   const listBox = document.getElementById("video-list");
-  const tutorialsBox = document.getElementById("zip-tutorials");
   if (!approvedText || !listBox) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId())
@@ -14,10 +13,11 @@
   }
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 
-  function renderZipTutorials() {
-    if (!tutorialsBox) return;
-    tutorialsBox.classList.remove("hidden");
-    tutorialsBox.innerHTML = `
+  function renderZipTutorialsInline(container) {
+    if (!container) return;
+    const wrap = document.createElement("div");
+    wrap.className = "tutorial-grid";
+    wrap.innerHTML = `
       <article class="card tutorial-card">
         <h3>آموزش باز کردن ZIP در iPhone</h3>
         <video class="video-box" controls preload="metadata" playsinline src="https://mxdomain.storage.c2.liara.space/amoozesh_iphone.mp4"></video>
@@ -27,6 +27,7 @@
         <video class="video-box" controls preload="metadata" playsinline src="https://mxdomain.storage.c2.liara.space/amoozesh_android.mp4"></video>
       </article>
     `;
+    container.appendChild(wrap);
   }
 
   function showNotificationGuidePopup() {
@@ -76,7 +77,7 @@
     `;
     backdrop.querySelector("#go-survey-btn")?.addEventListener("click", () => {
       localStorage.setItem(key, "1");
-      window.location.href = "/messages?open_survey=1";
+      window.location.href = "/?open_survey=1";
     });
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) {
@@ -109,10 +110,8 @@
 
       if (!data.categories.length) {
         listBox.innerHTML = "<div class='card'>هنوز دسترسی فعالی برای این دستگاه ثبت نشده است.</div>";
-        if (tutorialsBox) tutorialsBox.classList.add("hidden");
         return;
       }
-      renderZipTutorials();
       showSurveyBoostPopup();
 
       data.categories.forEach((cat) => {
@@ -156,6 +155,7 @@
           card.appendChild(document.createElement("br"));
           card.appendChild(document.createElement("br"));
         });
+        renderZipTutorialsInline(card);
 
         wrapper.appendChild(card);
         listBox.appendChild(wrapper);

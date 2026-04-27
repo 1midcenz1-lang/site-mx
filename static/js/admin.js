@@ -316,7 +316,7 @@
       const row = form.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "approved";
+        if (cells[6]) cells[6].textContent = "تایید شده";
         if (cells[8]) cells[8].textContent = "-";
       }
     });
@@ -344,7 +344,31 @@
       const row = btn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "rejected";
+        if (cells[6]) cells[6].textContent = "تایید نشده";
+        if (cells[8]) cells[8].textContent = reason;
+      }
+    });
+  });
+
+  document.querySelectorAll(".fake-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const rid = btn.dataset.requestId;
+      const form = btn.closest("form");
+      const reasonInput = form ? form.querySelector("textarea[name='reject_reason']") : null;
+      const reason = (reasonInput ? reasonInput.value.trim() : "") || "فیش نامعتبر تشخیص داده شد.";
+      const fd = new FormData();
+      fd.append("reason", reason);
+      const res = await fetch(`/admin/api/requests/${rid}/fake`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showPopup(data.message || "خطا در ثبت فیک");
+        return;
+      }
+      showPopup("به عنوان فیک علامت‌گذاری شد.");
+      const row = btn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) cells[6].textContent = "تایید نشده | فیک";
         if (cells[8]) cells[8].textContent = reason;
       }
     });
@@ -363,7 +387,7 @@
       const row = btn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "pending";
+        if (cells[6]) cells[6].textContent = "در انتظار بررسی";
       }
       refreshLiveStats();
     });
