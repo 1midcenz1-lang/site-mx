@@ -61,9 +61,9 @@
   function showIphoneCompassAlert() {
     if (!isIPhone() || isChromeOnIOS()) return;
     const shown = Number(localStorage.getItem("mx_ios_popup_count") || "0");
-    if (shown >= 3) return;
+    if (shown >= 4) return;
     localStorage.setItem("mx_ios_popup_count", String(shown + 1));
-    showPopup("اگر با این مرورگر نیستید نگران نشوید؛ ممکنه باشید ولی بهتره روی این آیکون بزنید: <img src='/icon' onerror=\"this.src='/static/icon.png'\" alt='icon' style='width:26px;height:26px;vertical-align:middle;border-radius:6px;margin:0 6px;'/> و لینک را با Chrome یا Safari باز کنید.");
+    showPopup("اگر با این مرورگر نیستید نگران نشوید؛ ممکنه باشید ولی بهتره روی این آیکون بزنید: <img src='/icon.png' onerror=\"this.src='/static/icon.png'\" alt='icon' style='width:26px;height:26px;vertical-align:middle;border-radius:6px;margin:0 6px;'/> و لینک را با Chrome یا Safari باز کنید.");
   }
 
   function attachIphoneBuyAlerts() {

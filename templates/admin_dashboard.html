@@ -65,72 +65,6 @@
     </tbody>
   </table>
 </section>
-<br>
-<section class="table-wrap scroll-box">
-  <h2>خلاصه کامل رفتار کاربرها</h2>
-  <table>
-    <thead><tr><th>کاربر</th><th>device_id</th><th>Browser</th><th>OS</th><th>آخرین حضور</th><th>تعداد ورود</th><th>دسته‌های لایک‌شده</th><th>دسترسی‌ها</th><th>تعداد ریپورت</th><th>لینک</th></tr></thead>
-    <tbody>
-      {% for a in activity_rows %}
-      <tr>
-        <td>{% if a.user_id %}کاربر {{ a.user_id }}{% else %}-{% endif %}</td>
-        <td class="device-id">{{ a.device_id }}</td>
-        <td>{{ a.browser_name }}</td>
-        <td>{{ a.os_name }}</td>
-        <td>{{ a.last_seen_at }}</td>
-        <td>{{ a.visit_count }}</td>
-        <td class="tiny-text">{{ a.liked_titles }}</td>
-        <td class="tiny-text">{{ a.access_titles }}</td>
-        <td>{{ a.report_count }}</td>
-        <td><a href="{{ a.report_link }}">مشاهده جزئیات</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-<br>
-<section class="grid-2">
-  <article class="form-card">
-    <h2>افزودن دسته‌بندی</h2>
-    <form id="category-form">
-      <label>عنوان</label>
-      <input name="title" required />
-      <label>Slug (انگلیسی)</label>
-      <input name="slug" required />
-      <label>متن پرداخت</label>
-      <textarea name="payment_text" rows="5" required></textarea>
-      <button class="btn" type="submit">ثبت دسته</button>
-    </form>
-  </article>
-
-  <article class="form-card">
-    <h2>افزودن فایل ZIP</h2>
-    <form id="video-form" enctype="multipart/form-data">
-      <label>عنوان فایل</label>
-      <input name="title" required />
-      <label>دسته</label>
-      <select name="category_id" required>
-        {% for c in categories %}
-          <option value="{{ c.id }}">{{ c.title }} ({{ c.slug }})</option>
-        {% endfor %}
-      </select>
-      <label>فایل ZIP (اختیاری)</label>
-      <input type="file" name="video_file" accept=".zip,application/zip" />
-      <label>یا لینک دانلود (اختیاری)</label>
-      <input name="external_url" />
-      <button class="btn" type="submit">ثبت فایل</button>
-      <div id="upload-progress-wrap" class="upload-progress hidden">
-        <div class="upload-progress-head">
-          <span>در حال آپلود...</span>
-          <span id="upload-progress-text">0%</span>
-        </div>
-        <div class="upload-progress-track">
-          <div id="upload-progress-bar" class="upload-progress-bar"></div>
-        </div>
-      </div>
-    </form>
-  </article>
-</section>
 
 <section class="table-wrap scroll-box">
   <h2>درخواست‌های خرید</h2>
@@ -182,6 +116,49 @@
       {% endfor %}
     </tbody>
   </table>
+</section>
+<br>
+<section class="grid-2">
+  <article class="form-card">
+    <h2>افزودن دسته‌بندی</h2>
+    <form id="category-form">
+      <label>عنوان</label>
+      <input name="title" required />
+      <label>Slug (انگلیسی)</label>
+      <input name="slug" required />
+      <label>متن پرداخت</label>
+      <textarea name="payment_text" rows="5" required></textarea>
+      <button class="btn" type="submit">ثبت دسته</button>
+    </form>
+  </article>
+
+  <article class="form-card">
+    <h2>افزودن فایل ZIP</h2>
+    <form id="video-form" enctype="multipart/form-data">
+      <label>عنوان فایل</label>
+      <input name="title" required />
+      <label>دسته</label>
+      <select name="category_id" required>
+        {% for c in categories %}
+          <option value="{{ c.id }}">{{ c.title }} ({{ c.slug }})</option>
+        {% endfor %}
+      </select>
+      <label>فایل ZIP (اختیاری)</label>
+      <input type="file" name="video_file" accept=".zip,application/zip" />
+      <label>یا لینک دانلود (اختیاری)</label>
+      <input name="external_url" />
+      <button class="btn" type="submit">ثبت فایل</button>
+      <div id="upload-progress-wrap" class="upload-progress hidden">
+        <div class="upload-progress-head">
+          <span>در حال آپلود...</span>
+          <span id="upload-progress-text">0%</span>
+        </div>
+        <div class="upload-progress-track">
+          <div id="upload-progress-bar" class="upload-progress-bar"></div>
+        </div>
+      </div>
+    </form>
+  </article>
 </section>
 <br>
 <section class="table-wrap scroll-box">
