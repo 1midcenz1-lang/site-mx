@@ -10,6 +10,15 @@
     return;
   }
 
+  function fmtTime(v) {
+    if (!v) return "-";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return v;
+    const t = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    const dt = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    return `${t} | ${dt}`;
+  }
+
   async function loadMessages() {
     try {
       const res = await fetch(`/api/my-report-replies?device_id=${encodeURIComponent(deviceId)}`);
@@ -27,11 +36,39 @@
           const card = document.createElement("details");
           card.className = "accordion-item";
           const summary = document.createElement("summary");
-          summary.textContent = `${item.report_type} | ${item.replied_at}`;
+          summary.textContent = `تیکت #${item.id} | ${item.report_type} | ${fmtTime(item.created_at)}`;
           card.appendChild(summary);
           const body = document.createElement("div");
           body.className = "card";
-          body.innerHTML = `<p><strong>پیام شما:</strong> ${item.report_text}</p><p><strong>پاسخ ادمین:</strong> ${item.admin_reply}</p>`;
+          const messages = item.messages && item.messages.length
+            ? item.messages
+            : [{ sender: "user", text: item.report_text, at: item.created_at }];
+          body.innerHTML = messages
+            .map((m) => `<p><strong>${m.sender === "admin" ? "ادمین" : "شما"}:</strong> ${m.text} <span class='tiny-text'>(${fmtTime(m.at)})</span></p>`)
+            .join("");
+          const form = document.createElement("form");
+          form.className = "ticket-reply-form";
+          form.innerHTML = `
+            <textarea rows="2" placeholder="پاسخ شما به ادمین..." required></textarea>
+            <button class="btn small" type="submit">ارسال پیام</button>
+          `;
+          form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const text = (form.querySelector("textarea")?.value || "").trim();
+            if (!text) return;
+            const res = await fetch(`/api/reports/${item.id}/reply`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ device_id: deviceId, text }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+              (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)(data.message || "خطا در ارسال پیام");
+              return;
+            }
+            loadMessages();
+          });
+          body.appendChild(form);
           card.appendChild(body);
           list.appendChild(card);
         });

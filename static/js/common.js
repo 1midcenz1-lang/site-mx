@@ -1,4 +1,26 @@
 ﻿(function () {
+  function showPopup(message, tone) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>${tone === "error" ? "خطا" : "پیام"}</h3>
+        <p>${message}</p>
+        <button class="btn ${tone === "error" ? "btn-danger" : ""}" type="button">باشه</button>
+      </div>
+    `;
+    const close = () => backdrop.remove();
+    backdrop.querySelector("button")?.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) close();
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  window.MX = window.MX || {};
+  window.MX.showPopup = showPopup;
+  window.alert = (msg) => showPopup(String(msg || ""));
+
   function isIPhone() {
     const ua = navigator.userAgent || "";
     const isiPhoneUA = /iPhone|iPod/i.test(ua);
@@ -36,14 +58,22 @@
     return `mx-${hash32(parts.join("|"))}`;
   }
 
-  function enforceIPhoneChrome() {
+  function showIphoneCompassAlert() {
     if (!isIPhone() || isChromeOnIOS()) return;
-    if (window.location.pathname === "/iphone-chrome-required") return;
-    const current = window.location.href;
-    const encoded = encodeURIComponent(current);
-    const deepLink = `googlechrome://navigate?url=${encoded}`;
-    const fallback = `/iphone-chrome-required?next=${encoded}`;
-    window.location.replace(fallback + `&open=${encodeURIComponent(deepLink)}`);
+    const shown = Number(localStorage.getItem("mx_ios_popup_count") || "0");
+    if (shown >= 4) return;
+    localStorage.setItem("mx_ios_popup_count", String(shown + 1));
+    showPopup("اگر با این مرورگر نیستید نگران نشوید؛ ممکنه باشید ولی بهتره روی این آیکون بزنید: <img src='/icon.png' onerror=\"this.src='/static/icon.png'\" alt='icon' style='width:26px;height:26px;vertical-align:middle;border-radius:6px;margin:0 6px;'/> و لینک را با Chrome یا Safari باز کنید.");
+  }
+
+  function attachIphoneBuyAlerts() {
+    if (!isIPhone() || isChromeOnIOS()) return;
+    const buyLinks = document.querySelectorAll("a[href^='/buy/']");
+    buyLinks.forEach((link) => {
+      link.addEventListener("click", () => {
+        showPopup("برای آیفون: قبل از خرید روی این آیکون بزنید <img src='/icon' onerror=\"this.src='/static/icon.png'\" alt='icon' style='width:26px;height:26px;vertical-align:middle;border-radius:6px;margin:0 6px;'/> و با Chrome یا Safari ادامه بدید.");
+      });
+    });
   }
 
   function initDevice() {
@@ -82,7 +112,8 @@
   }
 
   async function setup() {
-    enforceIPhoneChrome();
+    showIphoneCompassAlert();
+    attachIphoneBuyAlerts();
     const onboard = initDevice();
     const deviceId = onboard.deviceId;
 
@@ -209,9 +240,9 @@
           if (reportDeviceInput) reportDeviceInput.value = deviceId;
           if ("Notification" in window) {
             if (Notification.permission === "granted") {
-              alert("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
+              showPopup("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");
             } else {
-              alert("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+              showPopup("ریپورت ثبت شد. لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
             }
           }
         } catch (_err) {
