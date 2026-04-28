@@ -163,5 +163,5 @@
       loadMessages();
     });
   }
-  setInterval(loadMessages, 5000);
+  setInterval(loadMessages, 120000);
 })();
