@@ -274,8 +274,8 @@ def build_admin_reports(mdb, cat_by_id: dict[int, dict], limit: int = 300):
 def get_mongo_client():
     if "mongo_client" in app.extensions:
         return app.extensions["mongo_client"]
-        #uri = os.environ.get("MONGO_URI", "mongodb://mani:mani2244@185.8.172.161:27017/site_mx?authSource=admin")
-    uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/site_mx?authSource=admin")
+    uri = os.environ.get("MONGO_URI", "mongodb://mani:mani2244@185.8.172.161:27017/site_mx?authSource=admin")
+    #uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/site_mx?authSource=admin")
     db_name = os.environ.get("MONGO_DB_NAME", "").strip()
     try:
         pymongo_mod = __import__("pymongo")
