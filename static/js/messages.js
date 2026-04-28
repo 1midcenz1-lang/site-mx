@@ -1,5 +1,8 @@
 (function () {
   const list = document.getElementById("messages-list");
+  const newSupportForm = document.getElementById("new-support-form");
+  const newSupportText = document.getElementById("new-support-text");
+  const newSupportResult = document.getElementById("new-support-result");
   if (!list) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId && window.MX.ensureDeviceId())
@@ -33,6 +36,7 @@
         return;
       }
       const items = data.items || [];
+      const readyMessages = Array.isArray(data.ready_messages) ? data.ready_messages : [];
       if (!items.length) {
         list.innerHTML = "<div class='card'>فعلاً پیامی از ادمین ثبت نشده است.</div>";
       } else {
@@ -52,15 +56,29 @@
             : [{ sender: "user", text: item.report_text, at: item.created_at }];
           body.innerHTML = `<div class="ticket-thread">${
             messages
-              .map((m) => `<div class="ticket-msg ${m.sender === "admin" ? "ticket-admin" : "ticket-user"}"><strong>${m.sender === "admin" ? "ادمین" : "شما"}:</strong> ${m.text}<div class='tiny-text'>${fmtTime(m.at)}</div></div>`)
+              .map((m) => `<div class="ticket-msg ${m.sender === "admin" ? "ticket-admin" : "ticket-user"}"><strong>${m.sender === "admin" ? "ادمین" : "شما"}:</strong> ${m.text} <span class="tiny-text">${m.sender === "admin" ? "✓✓" : "✓"}</span><button class="msg-menu-btn" data-msg-id="${m.id}" data-rid="${item.id}" ${m.sender === "admin" ? "disabled" : ""}>⋯</button><div class='tiny-text'>${fmtTime(m.at)}</div></div>`)
               .join("")
           }</div>`;
           const form = document.createElement("form");
           form.className = "ticket-reply-form";
           form.innerHTML = `
+            <div class="ticket-ready-row">
+              <button class="btn small btn-ghost ticket-plus-btn" type="button">+</button>
+              <select class="ticket-ready-select hidden"></select>
+            </div>
             <textarea rows="2" placeholder="پاسخ شما به ادمین..." required></textarea>
             <button class="btn small" type="submit">ارسال پیام</button>
           `;
+          const sel = form.querySelector(".ticket-ready-select");
+          const plusBtn = form.querySelector(".ticket-plus-btn");
+          if (sel && readyMessages.length) {
+            sel.innerHTML = `<option value="">متن آماده...</option>${readyMessages.map((x) => `<option value="${String(x.text || "").replaceAll('"', "&quot;")}">${x.title || "بدون عنوان"}</option>`).join("")}`;
+            plusBtn?.addEventListener("click", () => sel.classList.toggle("hidden"));
+            sel.addEventListener("change", () => {
+              const ta = form.querySelector("textarea");
+              if (ta && sel.value) ta.value = sel.value;
+            });
+          } else if (plusBtn) plusBtn.classList.add("hidden");
           form.addEventListener("submit", async (e) => {
             e.preventDefault();
             const text = (form.querySelector("textarea")?.value || "").trim();
@@ -78,6 +96,36 @@
             loadMessages();
           });
           body.appendChild(form);
+          const deleteTicketBtn = document.createElement("button");
+          deleteTicketBtn.className = "btn small btn-danger";
+          deleteTicketBtn.type = "button";
+          deleteTicketBtn.textContent = "حذف این تیکت";
+          deleteTicketBtn.addEventListener("click", async () => {
+            const res = await fetch(`/api/reports/${item.id}/delete`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ device_id: deviceId }),
+            });
+            const out = await res.json();
+            if (!res.ok || !out.ok) return;
+            loadMessages();
+          });
+          body.appendChild(deleteTicketBtn);
+          body.querySelectorAll(".msg-menu-btn").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const rid = btn.getAttribute("data-rid");
+              const msgId = btn.getAttribute("data-msg-id");
+              if (!rid || !msgId) return;
+              const res = await fetch(`/api/reports/${rid}/messages/${msgId}/delete`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ device_id: deviceId }),
+              });
+              const out = await res.json();
+              if (!res.ok || !out.ok) return;
+              loadMessages();
+            });
+          });
           card.appendChild(body);
           list.appendChild(card);
         });
@@ -93,5 +141,27 @@
   }
 
   loadMessages();
-  setInterval(loadMessages, 5000);
+  if (newSupportForm && newSupportText && newSupportResult) {
+    newSupportForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = (newSupportText.value || "").trim();
+      if (!text) return;
+      const fd = new FormData();
+      fd.append("device_id", deviceId);
+      fd.append("report_type", "پشتیبانی");
+      fd.append("report_text", text);
+      const res = await fetch("/api/report", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        newSupportResult.classList.add("error");
+        newSupportResult.textContent = data.message || "خطا در ارسال تیکت";
+        return;
+      }
+      newSupportResult.classList.remove("error");
+      newSupportResult.textContent = "تیکت جدید ثبت شد.";
+      newSupportForm.reset();
+      loadMessages();
+    });
+  }
+  setInterval(loadMessages, 120000);
 })();

@@ -14,16 +14,62 @@
   const userSearchForm = document.getElementById("admin-user-search-form");
   const userSearchInput = document.getElementById("admin-user-search-input");
   const liveToast = document.getElementById("admin-live-toast");
+  const receiptModal = document.getElementById("receipt-modal");
+  const receiptModalImage = document.getElementById("receipt-modal-image");
+  const receiptModalClose = document.getElementById("receipt-modal-close");
+  const receiptModalDownload = document.getElementById("receipt-modal-download");
+  const receiptModalActions = document.getElementById("receipt-modal-actions");
+  const ticketReadyList = document.getElementById("ticket-ready-list");
+  const ticketReadyAddBtn = document.getElementById("ticket-ready-add-btn");
+  const ticketReadyJsonInput = document.getElementById("ticket-ready-json-input");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
   let lastTestimonialId = 0;
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
+  let receiptModalOpen = false;
   const categoryChips = Array.from(document.querySelectorAll(".category-title-input")).map((input) => ({
     id: input.dataset.categoryId,
     title: input.value,
   }));
+  let ticketReadyItems = [];
+
+  function parseReadyItems() {
+    if (!ticketReadyJsonInput) return [];
+    try {
+      const data = JSON.parse(ticketReadyJsonInput.value || "[]");
+      if (!Array.isArray(data)) return [];
+      return data.map((x) => ({
+        title: String((x && x.title) || "").trim(),
+        text: String((x && x.text) || "").trim(),
+      }));
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function syncReadyJsonInput() {
+    if (!ticketReadyJsonInput) return;
+    const normalized = ticketReadyItems
+      .map((x) => ({ title: String(x.title || "").trim(), text: String(x.text || "").trim() }))
+      .filter((x) => x.title || x.text);
+    ticketReadyJsonInput.value = JSON.stringify(normalized);
+  }
+
+  function renderReadyItems() {
+    if (!ticketReadyList) return;
+    ticketReadyList.innerHTML = ticketReadyItems.map((item, idx) => `
+      <div class="card" style="margin-bottom:8px;">
+        <label>عنوان نمایش</label>
+        <input type="text" class="ticket-ready-title" data-index="${idx}" value="${escapeHtml(item.title)}" />
+        <label>متن آماده</label>
+        <textarea rows="2" class="ticket-ready-text" data-index="${idx}">${escapeHtml(item.text)}</textarea>
+        <button class="btn small btn-danger ticket-ready-delete-btn" type="button" data-index="${idx}">🗑 حذف</button>
+      </div>
+    `).join("");
+    syncReadyJsonInput();
+  }
 
   function showPopup(message, tone) {
     const backdrop = document.createElement("div");
@@ -133,12 +179,12 @@
       const row = resetBtn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "در انتظار بررسی");
-          cells[6].innerHTML = statusBadge("در انتظار بررسی");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "در انتظار بررسی");
+          cells[7].innerHTML = statusBadge("در انتظار بررسی");
         }
-        if (cells[8]) cells[8].textContent = "-";
-        if (cells[9]) cells[9].innerHTML = renderPendingActions(rid, row.dataset.requestedCategory || "");
+        if (cells[9]) cells[9].textContent = "-";
+        if (cells[10]) cells[10].innerHTML = renderPendingActions(rid, "");
         row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
       }
       refreshLiveStats();
@@ -161,12 +207,12 @@
       const row = rejectBtn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "تایید نشده");
-          cells[6].innerHTML = statusBadge("تایید نشده");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "تایید نشده");
+          cells[7].innerHTML = statusBadge("تایید نشده");
         }
-        if (cells[8]) cells[8].textContent = reason || "-";
-        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+        if (cells[9]) cells[9].textContent = reason || "-";
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
       refreshLiveFeed();
@@ -187,12 +233,12 @@
       const row = fakeBtn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "تایید نشده | فیک");
-          cells[6].innerHTML = statusBadge("تایید نشده | فیک");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "تایید نشده | فیک");
+          cells[7].innerHTML = statusBadge("تایید نشده | فیک");
         }
-        if (cells[8]) cells[8].textContent = reason || "-";
-        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+        if (cells[9]) cells[9].textContent = reason || "-";
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
       refreshLiveFeed();
@@ -208,6 +254,43 @@
       showPopup("کاربر گزارش‌دهنده بن شد");
       reportBanBtn.disabled = true;
       refreshLiveStats();
+      return;
+    }
+    const reportDeleteBtn = target.closest(".report-delete-btn");
+    if (reportDeleteBtn) {
+      const rid = reportDeleteBtn.dataset.reportId;
+      const res = await fetch(`/admin/api/reports/${rid}/delete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در حذف ریپورت");
+      showPopup("ریپورت حذف شد");
+      reportDeleteBtn.closest("tr")?.remove();
+      refreshLiveStats();
+      return;
+    }
+    const receiptLink = target.closest(".receipt-open-link");
+    if (receiptLink && receiptModal && receiptModalImage && receiptModalActions) {
+      evt.preventDefault();
+      const row = receiptLink.closest("tr");
+      const rid = row?.dataset.requestId || "";
+      const requestedCategory = row?.dataset.requestedCategory || "";
+      receiptModalActions.dataset.requestId = rid;
+      receiptModalActions.querySelector(".reject-btn")?.setAttribute("data-request-id", rid);
+      receiptModalActions.querySelector(".fake-btn")?.setAttribute("data-request-id", rid);
+      receiptModalActions.querySelectorAll("input[name='category_ids']").forEach((x) => {
+        const label = x.closest("label");
+        const title = (label ? label.textContent : "").trim();
+        x.checked = !!requestedCategory && title === requestedCategory;
+      });
+      const receiptUrl = receiptLink.dataset.receiptUrl || receiptLink.getAttribute("href") || "";
+      receiptModalImage.src = receiptUrl;
+      if (receiptModalDownload) {
+        const sep = receiptUrl.includes("?") ? "&" : "?";
+        receiptModalDownload.href = `${receiptUrl}${sep}download=1`;
+      }
+      receiptModal.classList.remove("hidden");
+      receiptModalOpen = true;
+      const seenCell = row ? row.querySelector(".receipt-seen-cell") : null;
+      if (seenCell) seenCell.innerHTML = '<span style="color:#22c55e">👁️</span>';
       return;
     }
   });
@@ -266,8 +349,43 @@
   }
 
   if (settingsForm) {
+    ticketReadyItems = parseReadyItems();
+    renderReadyItems();
+    if (ticketReadyAddBtn) {
+      ticketReadyAddBtn.addEventListener("click", () => {
+        ticketReadyItems.push({ title: "", text: "" });
+        renderReadyItems();
+      });
+    }
+    document.addEventListener("input", (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const t = target.closest(".ticket-ready-title");
+      const m = target.closest(".ticket-ready-text");
+      if (t instanceof HTMLInputElement) {
+        const idx = Number(t.dataset.index || -1);
+        if (ticketReadyItems[idx]) ticketReadyItems[idx].title = t.value;
+        syncReadyJsonInput();
+      }
+      if (m instanceof HTMLTextAreaElement) {
+        const idx = Number(m.dataset.index || -1);
+        if (ticketReadyItems[idx]) ticketReadyItems[idx].text = m.value;
+        syncReadyJsonInput();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const del = target.closest(".ticket-ready-delete-btn");
+      if (!del) return;
+      const idx = Number(del.getAttribute("data-index") || -1);
+      if (idx < 0) return;
+      ticketReadyItems.splice(idx, 1);
+      renderReadyItems();
+    });
     settingsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      syncReadyJsonInput();
       const fd = new FormData(settingsForm);
       const res = await fetch("/admin/api/settings", { method: "POST", body: fd });
       const data = await res.json();
@@ -477,20 +595,22 @@
         return;
       }
       showPopup("تایید شد");
+      if (receiptModal) { receiptModal.classList.add("hidden"); receiptModalOpen = false; }
       const row = form.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "تایید شده");
-          cells[6].innerHTML = statusBadge("تایید شده");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "تایید شده");
+          cells[7].innerHTML = statusBadge("تایید شده");
         }
-        if (cells[8]) cells[8].textContent = "-";
-        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+        if (cells[9]) cells[9].textContent = "-";
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
     });
   }
   document.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+  if (receiptModalActions) bindApproveForm(receiptModalActions);
 
 
   document.querySelectorAll(".ban-btn").forEach((btn) => {
@@ -550,6 +670,28 @@
       setTimeout(() => window.location.reload(), 350);
     });
   });
+  const adminReadyToggle = document.getElementById("admin-ready-toggle");
+  const adminReadySelect = document.getElementById("admin-ready-select");
+  if (adminReadyToggle && adminReadySelect) {
+    adminReadyToggle.addEventListener("click", () => adminReadySelect.classList.toggle("hidden"));
+    adminReadySelect.addEventListener("change", () => {
+      const ta = document.querySelector(".reply-form textarea[name='reply_text']");
+      if (ta && adminReadySelect.value) ta.value = adminReadySelect.value;
+    });
+  }
+  document.querySelectorAll(".delete-admin-msg-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const rid = btn.dataset.reportId;
+      const msgId = btn.dataset.msgId;
+      const res = await fetch(`/admin/api/reports/${rid}/messages/${msgId}/delete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در حذف پیام");
+      window.location.reload();
+    });
+  });
+
+  if (receiptModalClose && receiptModal) receiptModalClose.addEventListener("click", () => { receiptModal.classList.add("hidden"); receiptModalOpen = false; });
+  if (receiptModal) receiptModal.addEventListener("click", (e) => { if (e.target === receiptModal) { receiptModal.classList.add("hidden"); receiptModalOpen = false; } });
 
   async function refreshLiveFeed() {
     if (!purchaseRowsBody && !reportRowsBody) return;
@@ -558,6 +700,7 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return;
       if (purchaseRowsBody && Array.isArray(data.purchases)) {
+        if (receiptModalOpen) return;
         const activeEl = document.activeElement;
         const isEditingPurchase =
           !!activeEl &&
@@ -572,7 +715,8 @@
             <td>${escapeHtml(r.requested_category)}</td>
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
             <td>${escapeHtml(r.created_at_clock)}<br><span class="tiny-text">${escapeHtml(r.created_at_day)}</span></td>
-            <td><a href="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" target="_blank">مشاهده</a></td>
+            <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/${encodeURI(r.receipt_path || "")}?rid=${encodeURIComponent(r.id || "")}" href="/admin/receipt/${encodeURI(r.receipt_path || "")}?rid=${encodeURIComponent(r.id || "")}">مشاهده</a></td>
+            <td class="receipt-seen-cell">${r.receipt_seen ? '<span style="color:#22c55e">👁️</span>' : '<span style="color:#ef4444">🙈</span>'}</td>
             <td class="status-cell" data-raw-status="${escapeHtml(r.status_label)}">${statusBadge(r.status_label)}</td>
             <td>${escapeHtml(r.user_note || "-")}</td>
             <td>${escapeHtml(r.admin_note || "-")}</td>
@@ -591,7 +735,7 @@
             <td><div class="tiny-text">${escapeHtml(rp.last_sender)}: ${escapeHtml(rp.last_text)}</div><div class="tiny-text">${escapeHtml(rp.last_at_clock)}<br>${escapeHtml(rp.last_at_day)}</div></td>
             <td class="tiny-text">${escapeHtml(rp.category_titles)}</td>
             <td>${escapeHtml(rp.created_at_clock)}<br><span class="tiny-text">${escapeHtml(rp.created_at_day)}</span></td>
-            <td><a class="btn small" href="/admin/reports/${rp.id}">باز کردن تیکت</a> <button class="btn small btn-danger report-ban-btn" data-device-id="${escapeHtml(rp.device_id)}" type="button">بن</button></td>
+            <td><a class="btn small" href="/admin/reports/${rp.id}">باز کردن تیکت</a> <button class="btn small btn-danger report-ban-btn" data-device-id="${escapeHtml(rp.device_id)}" type="button">بن</button> <button class="btn small btn-ghost report-delete-btn" data-report-id="${escapeHtml(rp.id)}" type="button">حذف</button></td>
           </tr>
         `).join("");
       }

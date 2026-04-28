@@ -89,10 +89,6 @@
   }
 
   async function loadVideos() {
-    listBox.innerHTML = "";
-    approvedText.classList.remove("error");
-    approvedText.textContent = "در حال بررسی...";
-
     const url = `/api/my-videos?device_id=${encodeURIComponent(deviceId)}`;
 
     try {
@@ -109,14 +105,22 @@
       showNotificationGuidePopup();
 
       if (!data.categories.length) {
+        listBox.innerHTML = "";
         listBox.innerHTML = "<div class='card'>هنوز دسترسی فعالی برای این دستگاه ثبت نشده است.</div>";
         return;
       }
       showSurveyBoostPopup();
-
+      const openIds = new Set(
+        Array.from(listBox.querySelectorAll("details[data-cat-id]"))
+          .filter((d) => d.open)
+          .map((d) => String(d.dataset.catId)),
+      );
+      const nextHtml = [];
       data.categories.forEach((cat) => {
         const wrapper = document.createElement("details");
         wrapper.className = "accordion-item";
+        wrapper.dataset.catId = String(cat.id);
+        wrapper.open = openIds.has(String(cat.id));
         const summary = document.createElement("summary");
         summary.textContent = `دسته ${cat.title}`;
         wrapper.appendChild(summary);
@@ -158,8 +162,9 @@
         renderZipTutorialsInline(card);
 
         wrapper.appendChild(card);
-        listBox.appendChild(wrapper);
+        nextHtml.push(wrapper.outerHTML);
       });
+      listBox.innerHTML = nextHtml.join("");
 
       fetch("/api/my-videos/mark-seen", {
         method: "POST",
@@ -173,5 +178,4 @@
   }
 
   loadVideos();
-  setInterval(loadVideos, 8000);
 })();
