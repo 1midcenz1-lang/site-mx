@@ -14,12 +14,17 @@
   const userSearchForm = document.getElementById("admin-user-search-form");
   const userSearchInput = document.getElementById("admin-user-search-input");
   const liveToast = document.getElementById("admin-live-toast");
+  const receiptModal = document.getElementById("receipt-modal");
+  const receiptModalImage = document.getElementById("receipt-modal-image");
+  const receiptModalClose = document.getElementById("receipt-modal-close");
+  const receiptModalActions = document.getElementById("receipt-modal-actions");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
   let lastTestimonialId = 0;
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
+  let receiptModalOpen = false;
   const categoryChips = Array.from(document.querySelectorAll(".category-title-input")).map((input) => ({
     id: input.dataset.categoryId,
     title: input.value,
@@ -133,12 +138,12 @@
       const row = resetBtn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "در انتظار بررسی");
-          cells[6].innerHTML = statusBadge("در انتظار بررسی");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "در انتظار بررسی");
+          cells[7].innerHTML = statusBadge("در انتظار بررسی");
         }
-        if (cells[8]) cells[8].textContent = "-";
-        if (cells[9]) cells[9].innerHTML = renderPendingActions(rid, row.dataset.requestedCategory || "");
+        if (cells[9]) cells[9].textContent = "-";
+        if (cells[10]) cells[10].innerHTML = renderPendingActions(rid, row.dataset.requestedCategory || "");
         row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
       }
       refreshLiveStats();
@@ -161,12 +166,12 @@
       const row = rejectBtn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "تایید نشده");
-          cells[6].innerHTML = statusBadge("تایید نشده");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "تایید نشده");
+          cells[7].innerHTML = statusBadge("تایید نشده");
         }
-        if (cells[8]) cells[8].textContent = reason || "-";
-        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+        if (cells[9]) cells[9].textContent = reason || "-";
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
       refreshLiveFeed();
@@ -187,12 +192,12 @@
       const row = fakeBtn.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "تایید نشده | فیک");
-          cells[6].innerHTML = statusBadge("تایید نشده | فیک");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "تایید نشده | فیک");
+          cells[7].innerHTML = statusBadge("تایید نشده | فیک");
         }
-        if (cells[8]) cells[8].textContent = reason || "-";
-        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+        if (cells[9]) cells[9].textContent = reason || "-";
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
       refreshLiveFeed();
@@ -208,6 +213,22 @@
       showPopup("کاربر گزارش‌دهنده بن شد");
       reportBanBtn.disabled = true;
       refreshLiveStats();
+      return;
+    }
+    const receiptLink = target.closest(".receipt-open-link");
+    if (receiptLink && receiptModal && receiptModalImage && receiptModalActions) {
+      evt.preventDefault();
+      const row = receiptLink.closest("tr");
+      const rid = row?.dataset.requestId || "";
+      receiptModalActions.dataset.requestId = rid;
+      receiptModalActions.querySelector(".reject-btn")?.setAttribute("data-request-id", rid);
+      receiptModalActions.querySelector(".fake-btn")?.setAttribute("data-request-id", rid);
+      receiptModalActions.querySelectorAll("input[name='category_ids']").forEach((x) => { x.checked = false; });
+      receiptModalImage.src = receiptLink.dataset.receiptUrl || receiptLink.getAttribute("href") || "";
+      receiptModal.classList.remove("hidden");
+      receiptModalOpen = true;
+      const seenCell = row ? row.querySelector(".receipt-seen-cell") : null;
+      if (seenCell) seenCell.innerHTML = '<span style="color:#22c55e">👁️</span>';
       return;
     }
   });
@@ -477,20 +498,22 @@
         return;
       }
       showPopup("تایید شد");
+      if (receiptModal) { receiptModal.classList.add("hidden"); receiptModalOpen = false; }
       const row = form.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) {
-          cells[6].setAttribute("data-raw-status", "تایید شده");
-          cells[6].innerHTML = statusBadge("تایید شده");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "تایید شده");
+          cells[7].innerHTML = statusBadge("تایید شده");
         }
-        if (cells[8]) cells[8].textContent = "-";
-        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+        if (cells[9]) cells[9].textContent = "-";
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
     });
   }
   document.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+  if (receiptModalActions) bindApproveForm(receiptModalActions);
 
 
   document.querySelectorAll(".ban-btn").forEach((btn) => {
@@ -550,6 +573,28 @@
       setTimeout(() => window.location.reload(), 350);
     });
   });
+  const adminReadyToggle = document.getElementById("admin-ready-toggle");
+  const adminReadySelect = document.getElementById("admin-ready-select");
+  if (adminReadyToggle && adminReadySelect) {
+    adminReadyToggle.addEventListener("click", () => adminReadySelect.classList.toggle("hidden"));
+    adminReadySelect.addEventListener("change", () => {
+      const ta = document.querySelector(".reply-form textarea[name='reply_text']");
+      if (ta && adminReadySelect.value) ta.value = adminReadySelect.value;
+    });
+  }
+  document.querySelectorAll(".delete-admin-msg-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const rid = btn.dataset.reportId;
+      const msgId = btn.dataset.msgId;
+      const res = await fetch(`/admin/api/reports/${rid}/messages/${msgId}/delete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در حذف پیام");
+      window.location.reload();
+    });
+  });
+
+  if (receiptModalClose && receiptModal) receiptModalClose.addEventListener("click", () => { receiptModal.classList.add("hidden"); receiptModalOpen = false; });
+  if (receiptModal) receiptModal.addEventListener("click", (e) => { if (e.target === receiptModal) { receiptModal.classList.add("hidden"); receiptModalOpen = false; } });
 
   async function refreshLiveFeed() {
     if (!purchaseRowsBody && !reportRowsBody) return;
@@ -558,6 +603,7 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return;
       if (purchaseRowsBody && Array.isArray(data.purchases)) {
+        if (receiptModalOpen) return;
         const activeEl = document.activeElement;
         const isEditingPurchase =
           !!activeEl &&
@@ -572,7 +618,8 @@
             <td>${escapeHtml(r.requested_category)}</td>
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
             <td>${escapeHtml(r.created_at_clock)}<br><span class="tiny-text">${escapeHtml(r.created_at_day)}</span></td>
-            <td><a href="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" target="_blank">مشاهده</a></td>
+            <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/${encodeURI(r.receipt_path || "")}?rid=${encodeURIComponent(r.id || "")}" href="/admin/receipt/${encodeURI(r.receipt_path || "")}?rid=${encodeURIComponent(r.id || "")}">مشاهده</a></td>
+            <td class="receipt-seen-cell">${r.receipt_seen ? '<span style="color:#22c55e">👁️</span>' : '<span style="color:#ef4444">🙈</span>'}</td>
             <td class="status-cell" data-raw-status="${escapeHtml(r.status_label)}">${statusBadge(r.status_label)}</td>
             <td>${escapeHtml(r.user_note || "-")}</td>
             <td>${escapeHtml(r.admin_note || "-")}</td>

@@ -9,8 +9,15 @@
     <a class="btn btn-ghost" href="/admin_logout">خروج</a>
   </div>
 </section>
+<section class="admin-sticky-nav card">
+  <a href="#admin-testimonials">نظرات</a>
+  <a href="#reports-table">ریپورت‌ها</a>
+  <a href="#admin-purchases">خریدها</a>
+  <a href="#settings-form">تنظیمات</a>
+  <a href="#admin-stats">آمار</a>
+</section>
 <div id="admin-live-toast" class="hidden" style="position:fixed;top:12px;right:12px;z-index:1300;"></div>
-<section class="card">
+<section id="admin-stats" class="card">
   <h3>⏰ زمان فعلی سرور</h3>
   <div class="server-clock-pill">
     <strong data-stat-key="server_now">{{ server_now }}</strong>
@@ -59,7 +66,7 @@
   </table>
 </section>
 <br>
-<section class="table-wrap scroll-box">
+<section id="admin-purchases" class="table-wrap scroll-box">
   <h2>جستجو کاربر</h2>
   <form id="admin-user-search-form" method="GET" class="form-card">
     <label>مثال: کاربر 657</label>
@@ -79,6 +86,7 @@
         <th>اشتراک‌های فعال</th>
         <th>زمان خرید (ایران)</th>
         <th>فیش</th>
+        <th>مشاهده</th>
         <th>وضعیت</th>
         <th>توضیح کاربر</th>
         <th>یادداشت ادمین</th>
@@ -93,7 +101,8 @@
         <td>{{ r.requested_category }}</td>
         <td class="tiny-text">{{ r.category_titles }}</td>
         <td>{{ r.created_at_clock }}<br><span class="tiny-text">{{ r.created_at_day }}</span></td>
-        <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
+        <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/{{ r.receipt_path }}?rid={{ r.id }}" href="/admin/receipt/{{ r.receipt_path }}?rid={{ r.id }}">مشاهده</a></td>
+        <td class="receipt-seen-cell">{% if r.receipt_seen %}<span style="color:#22c55e">👁️</span>{% else %}<span style="color:#ef4444">🙈</span>{% endif %}</td>
         <td class="status-cell">{{ r.status_label }}</td>
         <td>{{ r.user_note or "-" }}</td>
         <td>{{ r.admin_note or "-" }}</td>
@@ -121,7 +130,7 @@
   </table>
 </section>
 <br>
-<section class="table-wrap scroll-box">
+<section id="admin-files" class="table-wrap scroll-box">
   <h2>خلاصه کامل رفتار کاربرها</h2>
   <table>
     <thead><tr><th>کاربر</th><th>device_id</th><th>Browser</th><th>OS</th><th>وضعیت خرید</th><th>آخرین حضور</th><th>تعداد ورود</th><th>دسته‌های لایک‌شده</th><th>دسترسی‌ها</th><th>تعداد ریپورت</th><th>لینک</th></tr></thead>
@@ -216,7 +225,7 @@
   <h2>لیست فایل‌ها</h2>
   <table>
     <thead>
-      <tr><th>ID</th><th>عنوان</th><th>دسته</th><th>نوع</th><th>حجم/تعداد</th><th>عملیات</th></tr>
+      <tr><th>ID</th><th>عنوان</th><th>دسته</th><th>نوع</th><th>حجم</th><th>عملیات</th></tr>
     </thead>
     <tbody>
       {% for v in videos %}
@@ -225,7 +234,7 @@
         <td>{{ v.title }}</td>
         <td>{{ v.category_title }}</td>
         <td>{{ v.source_type }}</td>
-        <td>{% if v.file_count %}{{ v.file_count }} فایل | {% endif %}{{ v.file_size }}</td>
+        <td>{{ v.file_size }}{% if v.file_count %}<br><span class="tiny-text">{{ v.file_count }} فایل</span>{% endif %}</td>
         <td><button class="btn small btn-danger delete-video-btn" data-video-id="{{ v.id }}" type="button">حذف</button></td>
       </tr>
       {% endfor %}
@@ -233,7 +242,7 @@
   </table>
 </section>
 <br>
-<section class="table-wrap scroll-box">
+<section id="admin-testimonials" class="table-wrap scroll-box">
   <h2>نظرات کاربران</h2>
   <table>
     <thead>
@@ -319,6 +328,18 @@
     <input type="color" name="global_notice_color" value="{{ global_notice_color }}" />
     <label>زمان نمایش (ثانیه)</label>
     <input type="number" step="1" name="global_notice_duration_seconds" value="{{ global_notice_duration_seconds }}" />
+    <label>محل نمایش</label>
+    <select name="global_notice_position">
+      <option value="top-right" {% if global_notice_position == 'top-right' %}selected{% endif %}>بالا راست</option>
+      <option value="bottom-right" {% if global_notice_position == 'bottom-right' %}selected{% endif %}>پایین راست</option>
+    </select>
+    <label>اندازه فونت (px)</label>
+    <input type="number" step="1" name="global_notice_font_size_px" value="{{ global_notice_font_size_px }}" />
+    <label>حداکثر عرض نوتیف (px)</label>
+    <input type="number" step="1" name="global_notice_max_width_px" value="{{ global_notice_max_width_px }}" />
+    <hr>
+    <h3>متن‌های آماده تیکت (JSON)</h3>
+    <textarea name="ticket_ready_messages_json" rows="5">{{ ticket_ready_messages_json }}</textarea>
     {% set selected_pages = (global_notice_pages or '').split(',') %}
     <label>صفحه‌ها</label>
     <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="home" {% if 'home' in selected_pages %}checked{% endif %}/> صفحه اصلی</label>
@@ -327,6 +348,23 @@
     <button class="btn" type="submit">ذخیره تنظیمات</button>
   </form>
 </section>
+<div id="receipt-modal" class="modal-backdrop hidden">
+  <div class="modal-card" style="width:min(96vw,900px)">
+    <button id="receipt-modal-close" class="btn btn-danger small" type="button">✕</button>
+    <img id="receipt-modal-image" alt="receipt" style="width:100%;max-height:70vh;object-fit:contain;border-radius:12px;margin:8px 0;" />
+    <form id="receipt-modal-actions" class="approve-form" data-request-id="">
+      <div class="chips">
+        {% for c in categories %}
+          <label><input type="checkbox" name="category_ids" value="{{ c.id }}" />{{ c.title }}</label>
+        {% endfor %}
+      </div>
+      <textarea name="reject_reason" rows="2" placeholder="دلیل رد"></textarea>
+      <button class="btn small" type="submit">تایید</button>
+      <button class="btn small btn-danger reject-btn" type="button">رد</button>
+      <button class="btn small btn-ghost fake-btn" type="button">فیک</button>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
