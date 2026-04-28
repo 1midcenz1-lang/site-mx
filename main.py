@@ -132,19 +132,17 @@ def receipt_object_key(filename: str) -> str:
 
 def save_receipt_file(receipt_file, final_name: str) -> tuple[str, str]:
     s3_client = get_s3_client()
-    if s3_client:
-        key = receipt_object_key(final_name)
-        receipt_file.stream.seek(0)
-        s3_client.upload_fileobj(
-            receipt_file.stream,
-            LIARA_BUCKET_NAME,
-            key,
-            ExtraArgs={"ContentType": receipt_file.mimetype or "application/octet-stream"},
-        )
-        return "s3", key
-    local_path = os.path.join(RECEIPTS_DIR, final_name)
-    receipt_file.save(local_path)
-    return "local", final_name
+    if not s3_client:
+        raise RuntimeError("S3 client is not configured")
+    key = receipt_object_key(final_name)
+    receipt_file.stream.seek(0)
+    s3_client.upload_fileobj(
+        receipt_file.stream,
+        LIARA_BUCKET_NAME,
+        key,
+        ExtraArgs={"ContentType": receipt_file.mimetype or "application/octet-stream"},
+    )
+    return "s3", key
 
 
 def format_clock(iso_value: str | None) -> str:
@@ -681,7 +679,10 @@ def submit_request():
         return jsonify({"ok": False, "message": CLIENT_WAITING_REVIEW_TEXT, "pending_exists": True}), 409
     receipt_name = secure_filename(receipt.filename)
     final_name = f"{uuid.uuid4().hex}_{receipt_name}"
-    storage_type, receipt_path = save_receipt_file(receipt, final_name)
+    try:
+        storage_type, receipt_path = save_receipt_file(receipt, final_name)
+    except Exception:
+        return jsonify({"ok": False, "message": "آپلود رسید روی Object Storage انجام نشد. تنظیمات لیارا را بررسی کنید."}), 503
     mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": receipt_path, "receipt_storage": storage_type, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
     mdb["visitors"].update_one({"device_id": did}, {"$inc": {"purchase_count": 1}, "$set": {"last_seen_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True, "message": CLIENT_WAITING_REVIEW_TEXT, "next_url": "/my-videos"})
@@ -1138,24 +1139,20 @@ def admin_receipt(filename):
     if rid.isdigit() and mdb is not None:
         mdb["purchase_requests"].update_one({"id": int(rid), "receipt_seen_at": None}, {"$set": {"receipt_seen_at": now_iso()}})
     s3_client = get_s3_client()
-    if s3_client:
-        key = clean
-        if "/" not in key:
-            key = receipt_object_key(secure_filename(key))
-        try:
-            url = s3_client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": LIARA_BUCKET_NAME, "Key": key},
-                ExpiresIn=1800,
-            )
-            return redirect(url)
-        except Exception:
-            pass
-    local_name = secure_filename(clean.split("/")[-1])
-    full = os.path.join(RECEIPTS_DIR, local_name)
-    if not os.path.exists(full):
+    if not s3_client:
+        return jsonify({"ok": False, "message": "Object Storage در دسترس نیست."}), 503
+    key = clean
+    if "/" not in key:
+        key = receipt_object_key(secure_filename(key))
+    try:
+        url = s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": LIARA_BUCKET_NAME, "Key": key},
+            ExpiresIn=1800,
+        )
+        return redirect(url)
+    except Exception:
         abort(404)
-    return send_file(full)
 
 
 @app.get("/admin/reports/<int:rid>")

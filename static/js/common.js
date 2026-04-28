@@ -201,7 +201,8 @@
     setInterval(() => sendPresence(deviceId), 500000);
     maybeShowGlobalNotice();
     const videosBadge = document.getElementById("my-videos-badge");
-    if (videosBadge) {
+    async function refreshVideosBadge() {
+      if (!videosBadge) return;
       try {
         const res = await fetch(`/api/my-videos/summary?device_id=${encodeURIComponent(deviceId)}`);
         const data = await res.json();
@@ -216,6 +217,8 @@
         // silent
       }
     }
+    refreshVideosBadge();
+    setInterval(refreshVideosBadge, 12000);
 
     const reportForm = document.getElementById("report-form");
     const reportResult = document.getElementById("report-result");

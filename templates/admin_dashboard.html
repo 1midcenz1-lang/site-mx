@@ -338,8 +338,10 @@
     <label>حداکثر عرض نوتیف (px)</label>
     <input type="number" step="1" name="global_notice_max_width_px" value="{{ global_notice_max_width_px }}" />
     <hr>
-    <h3>متن‌های آماده تیکت (JSON)</h3>
-    <textarea name="ticket_ready_messages_json" rows="5">{{ ticket_ready_messages_json }}</textarea>
+    <h3>متن‌های آماده تیکت</h3>
+    <input type="hidden" id="ticket-ready-json-input" name="ticket_ready_messages_json" value="{{ ticket_ready_messages_json|e }}" />
+    <div id="ticket-ready-list"></div>
+    <button id="ticket-ready-add-btn" class="btn small btn-ghost" type="button">+ افزودن متن آماده</button>
     {% set selected_pages = (global_notice_pages or '').split(',') %}
     <label>صفحه‌ها</label>
     <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="home" {% if 'home' in selected_pages %}checked{% endif %}/> صفحه اصلی</label>

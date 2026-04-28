@@ -18,6 +18,9 @@
   const receiptModalImage = document.getElementById("receipt-modal-image");
   const receiptModalClose = document.getElementById("receipt-modal-close");
   const receiptModalActions = document.getElementById("receipt-modal-actions");
+  const ticketReadyList = document.getElementById("ticket-ready-list");
+  const ticketReadyAddBtn = document.getElementById("ticket-ready-add-btn");
+  const ticketReadyJsonInput = document.getElementById("ticket-ready-json-input");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
@@ -29,6 +32,43 @@
     id: input.dataset.categoryId,
     title: input.value,
   }));
+  let ticketReadyItems = [];
+
+  function parseReadyItems() {
+    if (!ticketReadyJsonInput) return [];
+    try {
+      const data = JSON.parse(ticketReadyJsonInput.value || "[]");
+      if (!Array.isArray(data)) return [];
+      return data.map((x) => ({
+        title: String((x && x.title) || "").trim(),
+        text: String((x && x.text) || "").trim(),
+      }));
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function syncReadyJsonInput() {
+    if (!ticketReadyJsonInput) return;
+    const normalized = ticketReadyItems
+      .map((x) => ({ title: String(x.title || "").trim(), text: String(x.text || "").trim() }))
+      .filter((x) => x.title || x.text);
+    ticketReadyJsonInput.value = JSON.stringify(normalized);
+  }
+
+  function renderReadyItems() {
+    if (!ticketReadyList) return;
+    ticketReadyList.innerHTML = ticketReadyItems.map((item, idx) => `
+      <div class="card" style="margin-bottom:8px;">
+        <label>عنوان نمایش</label>
+        <input type="text" class="ticket-ready-title" data-index="${idx}" value="${escapeHtml(item.title)}" />
+        <label>متن آماده</label>
+        <textarea rows="2" class="ticket-ready-text" data-index="${idx}">${escapeHtml(item.text)}</textarea>
+        <button class="btn small btn-danger ticket-ready-delete-btn" type="button" data-index="${idx}">🗑 حذف</button>
+      </div>
+    `).join("");
+    syncReadyJsonInput();
+  }
 
   function showPopup(message, tone) {
     const backdrop = document.createElement("div");
@@ -287,8 +327,43 @@
   }
 
   if (settingsForm) {
+    ticketReadyItems = parseReadyItems();
+    renderReadyItems();
+    if (ticketReadyAddBtn) {
+      ticketReadyAddBtn.addEventListener("click", () => {
+        ticketReadyItems.push({ title: "", text: "" });
+        renderReadyItems();
+      });
+    }
+    document.addEventListener("input", (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const t = target.closest(".ticket-ready-title");
+      const m = target.closest(".ticket-ready-text");
+      if (t instanceof HTMLInputElement) {
+        const idx = Number(t.dataset.index || -1);
+        if (ticketReadyItems[idx]) ticketReadyItems[idx].title = t.value;
+        syncReadyJsonInput();
+      }
+      if (m instanceof HTMLTextAreaElement) {
+        const idx = Number(m.dataset.index || -1);
+        if (ticketReadyItems[idx]) ticketReadyItems[idx].text = m.value;
+        syncReadyJsonInput();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const del = target.closest(".ticket-ready-delete-btn");
+      if (!del) return;
+      const idx = Number(del.getAttribute("data-index") || -1);
+      if (idx < 0) return;
+      ticketReadyItems.splice(idx, 1);
+      renderReadyItems();
+    });
     settingsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      syncReadyJsonInput();
       const fd = new FormData(settingsForm);
       const res = await fetch("/admin/api/settings", { method: "POST", body: fd });
       const data = await res.json();

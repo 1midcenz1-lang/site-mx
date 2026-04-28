@@ -178,5 +178,4 @@
   }
 
   loadVideos();
-  setInterval(loadVideos, 8000);
 })();
