@@ -80,7 +80,7 @@
   }
 
   const IOS_COMPASS_ALERT_KEY = "mx_ios_compass_alert_count";
-  const IOS_COMPASS_ALERT_MAX = 3;
+  const IOS_COMPASS_ALERT_MAX = 15;
   const IOS_COMPASS_ALERT_TEXT = "توجه حتما حتما بروی ایفون باید با مرورگر سافاری یا کروم که خارج از بله هست وارد بشید<br>برای اینکار کافیه روی قطب نما <img src='/static/icon.png' alt='قطب نما' style='width:16px;height:16px;vertical-align:middle;border-radius:4px;' /> کلیک کنید که پایین سمت راسته";
 
   function showIphoneCompassAlert() {
@@ -190,7 +190,7 @@
 
     registerVisit(deviceId);
     sendPresence(deviceId);
-    setInterval(() => sendPresence(deviceId), 30000);
+    setInterval(() => sendPresence(deviceId), 500000);
     maybeShowGlobalNotice();
     const videosBadge = document.getElementById("my-videos-badge");
     if (videosBadge) {
