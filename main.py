@@ -5,6 +5,7 @@ import string
 import json
 import uuid
 import zipfile
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
@@ -44,6 +45,10 @@ TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 DEFAULT_SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
 DEFAULT_UTC_ADJUST_HOURS = 4
 DEFAULT_MAX_DEVICES_PER_USER = 2
+REMOTE_FILE_SIZE_TIMEOUT_SECONDS = 1.2
+REMOTE_FILE_SIZE_CACHE_TTL_SECONDS = 6 * 60 * 60
+REMOTE_FILE_SIZE_MAX_NETWORK_CHECKS_PER_REQUEST = 15
+_remote_file_size_cache: dict[str, tuple[float, str]] = {}
 
 PAYMENT_TEXT_IRANI = (
     "کانال ایرانی دارای 100 فیلم با کیفیت میباشد\n\n"
@@ -200,17 +205,26 @@ def local_zip_info(file_path: str | None) -> tuple[int | None, str]:
     return file_count, human_size(size)
 
 
-def remote_file_size(url: str | None) -> str:
+def remote_file_size(url: str | None, allow_network: bool = True) -> str:
     if not url:
         return "-"
+    now_ts = time.time()
+    cached = _remote_file_size_cache.get(url)
+    if cached and (now_ts - cached[0] <= REMOTE_FILE_SIZE_CACHE_TTL_SECONDS):
+        return cached[1]
+    if not allow_network:
+        return cached[1] if cached else "-"
     try:
         req = urllib_request.Request(url, method="HEAD")
-        with urllib_request.urlopen(req, timeout=8) as resp:
+        with urllib_request.urlopen(req, timeout=REMOTE_FILE_SIZE_TIMEOUT_SECONDS) as resp:
             content_length = resp.headers.get("Content-Length")
             if content_length and str(content_length).isdigit():
-                return human_size(int(content_length))
+                val = human_size(int(content_length))
+                _remote_file_size_cache[url] = (now_ts, val)
+                return val
     except Exception:
-        return "-"
+        pass
+    _remote_file_size_cache[url] = (now_ts, "-")
     return "-"
 
 
@@ -1012,6 +1026,7 @@ def admin_dashboard():
         c["active_count"] = active_per_category.get(c.get("id"), 0)
     cat_by_id = {c["id"]: c for c in categories}
     videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(180))
+    remote_size_checks_left = REMOTE_FILE_SIZE_MAX_NETWORK_CHECKS_PER_REQUEST
     for v in videos:
         v["category_title"] = (cat_by_id.get(v.get("category_id")) or {}).get("title", "-")
         if v.get("source_type") == "file":
@@ -1020,7 +1035,10 @@ def admin_dashboard():
             v["file_size"] = s
         else:
             v["file_count"] = None
-            v["file_size"] = remote_file_size(v.get("external_url"))
+            allow_network = remote_size_checks_left > 0
+            v["file_size"] = remote_file_size(v.get("external_url"), allow_network=allow_network)
+            if allow_network:
+                remote_size_checks_left -= 1
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
     requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 300)
