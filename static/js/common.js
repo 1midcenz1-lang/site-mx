@@ -24,7 +24,7 @@
       box.style.background = "rgba(153, 27, 27, 0.96)";
       box.style.borderColor = "#ef4444";
     }
-    box.innerHTML = `<div class="iphone-corner-flash-arrow">↘️</div><div>${message}</div>`;
+    box.innerHTML = `<div class="iphone-corner-flash-arrow">⬇️</div><div>${message}</div>`;
     document.body.appendChild(box);
     setTimeout(() => box.remove(), 4200);
   }
@@ -81,7 +81,7 @@
 
   const IOS_COMPASS_ALERT_KEY = "mx_ios_compass_alert_count";
   const IOS_COMPASS_ALERT_MAX = 15;
-  const IOS_COMPASS_ALERT_TEXT = "توجه حتما حتما بروی ایفون باید با مرورگر سافاری یا کروم که خارج از بله هست وارد بشید<br>برای اینکار کافیه روی قطب نما <img src='/static/icon.png' alt='قطب نما' style='width:16px;height:16px;vertical-align:middle;border-radius:4px;' /> کلیک کنید که پایین سمت راسته";
+  const IOS_COMPASS_ALERT_TEXT = "توجه حتما حتما روی ایفون باید با مرورگر سافاری یا کروم که خارج از بله هست وارد بشید<br>برای اینکار کافیه روی قطب نما <img src='/static/icon.png' alt='قطب نما' style='width:16px;height:16px;vertical-align:middle;border-radius:4px;' /> کلیک کنید که پایین سمت راسته";
 
   function showIphoneCompassAlert() {
     if (!isIPhone() || isChromeOnIOS()) return;
