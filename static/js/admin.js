@@ -183,7 +183,7 @@
           cells[7].innerHTML = statusBadge("در انتظار بررسی");
         }
         if (cells[9]) cells[9].textContent = "-";
-        if (cells[10]) cells[10].innerHTML = renderPendingActions(rid, row.dataset.requestedCategory || "");
+        if (cells[10]) cells[10].innerHTML = renderPendingActions(rid, "");
         row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
       }
       refreshLiveStats();
@@ -260,10 +260,15 @@
       evt.preventDefault();
       const row = receiptLink.closest("tr");
       const rid = row?.dataset.requestId || "";
+      const requestedCategory = row?.dataset.requestedCategory || "";
       receiptModalActions.dataset.requestId = rid;
       receiptModalActions.querySelector(".reject-btn")?.setAttribute("data-request-id", rid);
       receiptModalActions.querySelector(".fake-btn")?.setAttribute("data-request-id", rid);
-      receiptModalActions.querySelectorAll("input[name='category_ids']").forEach((x) => { x.checked = false; });
+      receiptModalActions.querySelectorAll("input[name='category_ids']").forEach((x) => {
+        const label = x.closest("label");
+        const title = (label ? label.textContent : "").trim();
+        x.checked = !!requestedCategory && title === requestedCategory;
+      });
       receiptModalImage.src = receiptLink.dataset.receiptUrl || receiptLink.getAttribute("href") || "";
       receiptModal.classList.remove("hidden");
       receiptModalOpen = true;

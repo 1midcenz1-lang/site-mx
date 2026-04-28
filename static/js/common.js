@@ -46,6 +46,31 @@
   window.MX.showPopup = showPopup;
   window.alert = (msg) => showPopup(String(msg || ""));
 
+  function playNotifyFeedback() {
+    try {
+      if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+    } catch (_err) {
+      // silent
+    }
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = 880;
+      g.gain.value = 0.001;
+      o.connect(g);
+      g.connect(ctx.destination);
+      const now = ctx.currentTime;
+      g.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+      o.start(now);
+      o.stop(now + 0.25);
+    } catch (_err) {
+      // silent
+    }
+  }
+
   function isIPhone() {
     const ua = navigator.userAgent || "";
     const isiPhoneUA = /iPhone|iPod/i.test(ua);
@@ -275,11 +300,7 @@
     }
     if (supportToggle && reportPanel) {
       supportToggle.addEventListener("click", () => {
-        reportPanel.classList.remove("hidden");
-        if (reportTypeSelect) reportTypeSelect.value = "پشتیبانی";
-        reportPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-        const textArea = reportForm ? reportForm.querySelector("textarea[name='report_text']") : null;
-        if (textArea) textArea.focus({ preventScroll: true });
+        window.location.href = "/messages";
       });
     }
     if (surveyToggle && reportPanel) {
@@ -335,6 +356,7 @@
           reportResult.textContent = data.message;
           reportForm.reset();
           if (reportDeviceInput) reportDeviceInput.value = deviceId;
+          playNotifyFeedback();
           if ("Notification" in window) {
             if (Notification.permission === "granted") {
               showPopup("ریپورت ثبت شد. پس از تایید ادمین از طریق نوتیف به شما اطلاع داده می‌شود.");

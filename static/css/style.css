@@ -238,6 +238,10 @@ body {
 .modal-backdrop.hidden { display: none !important; }
 .modal-card { width: min(92vw, 430px); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
 .modal-card p { color: var(--muted); margin-top: 0; }
+.receipt-modal-card { width: min(96vw, 900px); max-height: 94vh; overflow: auto; position: relative; }
+.receipt-modal-close { position: sticky; top: 0; z-index: 5; }
+.receipt-modal-image { width: 100%; max-height: 56vh; object-fit: contain; border-radius: 12px; margin: 8px 0; }
+.receipt-modal-actions { position: sticky; bottom: 0; background: rgba(15, 23, 42, 0.95); padding-top: 8px; }
 
 label { display: block; margin: 12px 0 6px; font-weight: 700; }
 input, textarea, select {
@@ -294,7 +298,7 @@ input, textarea, select {
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 14px; }
 
-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 680px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 560px; }
 th, td { border: 1px solid var(--line); padding: 8px; text-align: right; vertical-align: top; }
 th { background: rgba(30, 41, 59, 0.75); }
 .device-id { font-family: monospace; font-size: 12px; }
@@ -636,6 +640,11 @@ th { background: rgba(30, 41, 59, 0.75); }
   .container { padding: 14px; }
   .hero h1 { font-size: 24px; }
   .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  table { min-width: 460px; font-size: 12px; }
+  th, td { padding: 6px; }
+  .receipt-modal-card { width: 98vw; max-height: 96vh; padding: 10px; }
+  .receipt-modal-image { max-height: 44vh; }
+  .chips label { font-size: 11px; }
   .quick-links .btn { flex-basis: 100%; }
   .report-fab { left: 12px; bottom: 12px; }
   .support-fab { left: 12px; bottom: 52px; }

@@ -351,10 +351,10 @@
   </form>
 </section>
 <div id="receipt-modal" class="modal-backdrop hidden">
-  <div class="modal-card" style="width:min(96vw,900px)">
-    <button id="receipt-modal-close" class="btn btn-danger small" type="button">✕</button>
-    <img id="receipt-modal-image" alt="receipt" style="width:100%;max-height:70vh;object-fit:contain;border-radius:12px;margin:8px 0;" />
-    <form id="receipt-modal-actions" class="approve-form" data-request-id="">
+  <div class="modal-card receipt-modal-card">
+    <button id="receipt-modal-close" class="btn btn-danger small receipt-modal-close" type="button">✕</button>
+    <img id="receipt-modal-image" alt="receipt" class="receipt-modal-image" />
+    <form id="receipt-modal-actions" class="approve-form receipt-modal-actions" data-request-id="">
       <div class="chips">
         {% for c in categories %}
           <label><input type="checkbox" name="category_ids" value="{{ c.id }}" />{{ c.title }}</label>
