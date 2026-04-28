@@ -17,10 +17,14 @@
     document.body.appendChild(backdrop);
   }
 
-  function showCornerFlash(message) {
+  function showCornerFlash(message, options = {}) {
     const box = document.createElement("div");
     box.className = "iphone-corner-flash";
-    box.innerHTML = `<div class="iphone-corner-flash-arrow">🧭</div><div>${message}</div>`;
+    if (options.red) {
+      box.style.background = "rgba(153, 27, 27, 0.96)";
+      box.style.borderColor = "#ef4444";
+    }
+    box.innerHTML = `<div class="iphone-corner-flash-arrow">↘️</div><div>${message}</div>`;
     document.body.appendChild(box);
     setTimeout(() => box.remove(), 4200);
   }
@@ -75,20 +79,34 @@
     return `mx-${hash32(parts.join("|"))}`;
   }
 
+  const IOS_COMPASS_ALERT_KEY = "mx_ios_compass_alert_count";
+  const IOS_COMPASS_ALERT_MAX = 3;
+  const IOS_COMPASS_ALERT_TEXT = "توجه حتما حتما بروی ایفون باید با مرورگر سافاری یا کروم که خارج از بله هست وارد بشید<br>برای اینکار کافیه روی قطب نما <img src='/static/icon.png' alt='قطب نما' style='width:16px;height:16px;vertical-align:middle;border-radius:4px;' /> کلیک کنید که پایین سمت راسته";
+
   function showIphoneCompassAlert() {
     if (!isIPhone() || isChromeOnIOS()) return;
-    const shown = Number(localStorage.getItem("mx_ios_popup_count") || "0");
-    if (shown >= 3) return;
-    localStorage.setItem("mx_ios_popup_count", String(shown + 1));
-    showCornerFlash("به دلیل استفاده از ایفون اگرر با مرورگری جز سافاری  یا کروم هستید حتما سمت راست پایین روی قطب نما کلیک کنید<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست");
+    const shown = Number(localStorage.getItem(IOS_COMPASS_ALERT_KEY) || "0");
+    if (shown >= IOS_COMPASS_ALERT_MAX) return;
+    localStorage.setItem(IOS_COMPASS_ALERT_KEY, String(shown + 1));
+    showCornerFlash(IOS_COMPASS_ALERT_TEXT, { red: true });
   }
 
   function attachIphoneBuyAlerts() {
     if (!isIPhone() || isChromeOnIOS()) return;
     const buyLinks = document.querySelectorAll("a[href^='/buy/']");
     buyLinks.forEach((link) => {
-      link.addEventListener("click", () => {
-        showCornerFlash("به دلیل استفاده از ایفون اگرر با مرورگری جز سافاری  یا کروم هستید حتما سمت راست پایین روی قطب نما کلیک کنید<br>مگرنه دسترسیتون از بین میره و قابل بازگشت نیست");
+      link.addEventListener("click", (event) => {
+        const shown = Number(localStorage.getItem(IOS_COMPASS_ALERT_KEY) || "0");
+        if (shown >= IOS_COMPASS_ALERT_MAX) return;
+        event.preventDefault();
+        localStorage.setItem(IOS_COMPASS_ALERT_KEY, String(shown + 1));
+        showCornerFlash(IOS_COMPASS_ALERT_TEXT, { red: true });
+        const href = link.getAttribute("href");
+        if (href) {
+          setTimeout(() => {
+            window.location.href = href;
+          }, 1200);
+        }
       });
     });
   }
@@ -172,7 +190,7 @@
 
     registerVisit(deviceId);
     sendPresence(deviceId);
-    setInterval(() => sendPresence(deviceId), 10000);
+    setInterval(() => sendPresence(deviceId), 30000);
     maybeShowGlobalNotice();
     const videosBadge = document.getElementById("my-videos-badge");
     if (videosBadge) {
