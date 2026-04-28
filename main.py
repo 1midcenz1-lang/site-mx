@@ -2,6 +2,7 @@
 import re
 import secrets
 import string
+import json
 import uuid
 import zipfile
 from datetime import datetime, timedelta
@@ -33,6 +34,11 @@ SAMPLES_DIR = os.path.join(UPLOAD_DIR, "samples")
 
 ALLOWED_RECEIPT_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 ALLOWED_ARCHIVE_EXTENSIONS = {"zip"}
+LIARA_ENDPOINT_URL = os.environ.get("LIARA_ENDPOINT_URL", "").strip()
+LIARA_ACCESS_KEY = os.environ.get("LIARA_ACCESS_KEY", "").strip()
+LIARA_SECRET_KEY = os.environ.get("LIARA_SECRET_KEY", "").strip()
+LIARA_BUCKET_NAME = os.environ.get("LIARA_BUCKET_NAME", "mxdomain").strip() or "mxdomain"
+LIARA_RECEIPTS_PREFIX = os.environ.get("LIARA_RECEIPTS_PREFIX", "mxdomain/uploads/reciepts").strip().strip("/")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-now")
@@ -75,6 +81,70 @@ CLIENT_APPROVED_TEXT = (
 
 def now_iso() -> str:
     return datetime.utcnow().isoformat()
+
+
+def normalize_report_messages(raw_messages, fallback_text: str = "", fallback_at: str | None = None):
+    normalized = []
+    if isinstance(raw_messages, list):
+        for m in raw_messages:
+            if isinstance(m, dict):
+                sender = "admin" if m.get("sender") == "admin" else "user"
+                text = str(m.get("text") or "").strip()
+                if not text:
+                    continue
+                normalized.append({
+                    "id": str(m.get("id") or uuid.uuid4().hex[:12]),
+                    "sender": sender,
+                    "text": text,
+                    "at": m.get("at") or fallback_at or now_iso(),
+                })
+            elif isinstance(m, str) and m.strip():
+                normalized.append({"id": uuid.uuid4().hex[:12], "sender": "user", "text": m.strip(), "at": fallback_at or now_iso()})
+    if not normalized and fallback_text.strip():
+        normalized = [{"id": uuid.uuid4().hex[:12], "sender": "user", "text": fallback_text.strip(), "at": fallback_at or now_iso()}]
+    return normalized
+
+
+def get_s3_client():
+    if "liara_s3_client" in app.extensions:
+        return app.extensions["liara_s3_client"]
+    if not (LIARA_ENDPOINT_URL and LIARA_ACCESS_KEY and LIARA_SECRET_KEY):
+        app.extensions["liara_s3_client"] = None
+        return None
+    try:
+        boto3_mod = __import__("boto3")
+        client = boto3_mod.client(
+            "s3",
+            endpoint_url=LIARA_ENDPOINT_URL,
+            aws_access_key_id=LIARA_ACCESS_KEY,
+            aws_secret_access_key=LIARA_SECRET_KEY,
+        )
+        app.extensions["liara_s3_client"] = client
+        return client
+    except Exception:
+        app.extensions["liara_s3_client"] = None
+        return None
+
+
+def receipt_object_key(filename: str) -> str:
+    return f"{LIARA_RECEIPTS_PREFIX}/{filename}".strip("/")
+
+
+def save_receipt_file(receipt_file, final_name: str) -> tuple[str, str]:
+    s3_client = get_s3_client()
+    if s3_client:
+        key = receipt_object_key(final_name)
+        receipt_file.stream.seek(0)
+        s3_client.upload_fileobj(
+            receipt_file.stream,
+            LIARA_BUCKET_NAME,
+            key,
+            ExtraArgs={"ContentType": receipt_file.mimetype or "application/octet-stream"},
+        )
+        return "s3", key
+    local_path = os.path.join(RECEIPTS_DIR, final_name)
+    receipt_file.save(local_path)
+    return "local", final_name
 
 
 def format_clock(iso_value: str | None) -> str:
@@ -184,6 +254,8 @@ def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict
             "created_at_day": format_day(r.get("created_at")),
             "status_label": purchase_status_label(r.get("status"), req_is_fake),
             "is_fake_receipt": req_is_fake,
+            "receipt_seen_at": r.get("receipt_seen_at"),
+            "receipt_seen": bool(r.get("receipt_seen_at")),
         })
     return rows
 
@@ -203,21 +275,7 @@ def build_admin_reports(mdb, cat_by_id: dict[int, dict], limit: int = 300):
         user_id = rp.get("user_id")
         category_titles = [cat_by_id.get(cid, {}).get("title") for cid in access_by_user.get(user_id, []) if cat_by_id.get(cid)]
         rp["category_titles"] = ", ".join(category_titles) if category_titles else "-"
-        raw_messages = rp.get("messages") or []
-        normalized_messages = []
-        if isinstance(raw_messages, list):
-            for m in raw_messages:
-                if isinstance(m, dict):
-                    normalized_messages.append({
-                        "sender": m.get("sender") or "user",
-                        "text": str(m.get("text") or ""),
-                        "at": m.get("at"),
-                    })
-                elif isinstance(m, str) and m.strip():
-                    normalized_messages.append({"sender": "user", "text": m.strip(), "at": rp.get("created_at")})
-        if not normalized_messages:
-            seed_text = (rp.get("report_text") or "").strip()
-            normalized_messages = [{"sender": "user", "text": seed_text, "at": rp.get("created_at")}]
+        normalized_messages = normalize_report_messages(rp.get("messages"), (rp.get("report_text") or "").strip(), rp.get("created_at"))
         rp["messages"] = normalized_messages
         rp["created_at_clock"] = format_clock(rp.get("created_at"))
         rp["created_at_day"] = format_day(rp.get("created_at"))
@@ -322,6 +380,10 @@ def seed_mongo():
         "global_notice_color": "#0ea5e9",
         "global_notice_duration_ms": "5000",
         "global_notice_pages": "home,my-videos,buy",
+        "global_notice_position": "top-right",
+        "global_notice_font_size_px": "14",
+        "global_notice_max_width_px": "320",
+        "ticket_ready_messages_json": "[]",
     }
     for k, v in defaults.items():
         mdb["app_settings"].update_one({"key": k}, {"$setOnInsert": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)
@@ -619,8 +681,8 @@ def submit_request():
         return jsonify({"ok": False, "message": CLIENT_WAITING_REVIEW_TEXT, "pending_exists": True}), 409
     receipt_name = secure_filename(receipt.filename)
     final_name = f"{uuid.uuid4().hex}_{receipt_name}"
-    receipt.save(os.path.join(RECEIPTS_DIR, final_name))
-    mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": final_name, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
+    storage_type, receipt_path = save_receipt_file(receipt, final_name)
+    mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": receipt_path, "receipt_storage": storage_type, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
     mdb["visitors"].update_one({"device_id": did}, {"$inc": {"purchase_count": 1}, "$set": {"last_seen_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True, "message": CLIENT_WAITING_REVIEW_TEXT, "next_url": "/my-videos"})
 
@@ -684,6 +746,9 @@ def submit_testimonial():
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    has_access = mdb["user_access"].count_documents({"user_id": user.get("id")}) > 0
+    if not has_access:
+        return jsonify({"ok": False, "message": "ثبت نظر فقط برای کاربرانی که اشتراک فعال دارند باز است."}), 403
     titles = []
     for ua in mdb["user_access"].find({"user_id": user.get("id")}, {"_id": 0, "category_id": 1}):
         cat = mdb["categories"].find_one({"id": ua.get("category_id")}, {"_id": 0, "title": 1})
@@ -702,11 +767,18 @@ def my_replies():
     rows = list(mdb["reports"].find({"device_id": did}, {"_id": 0}).sort("id", -1).limit(30))
     unseen = 0
     for x in rows:
-        messages = x.get("messages") or []
+        messages = normalize_report_messages(x.get("messages"), x.get("report_text") or "", x.get("created_at"))
+        x["messages"] = messages
         has_admin = any(m.get("sender") == "admin" for m in messages)
         if has_admin and not x.get("user_seen_at"):
             unseen += 1
-    return jsonify({"ok": True, "items": rows, "unseen_count": unseen})
+    try:
+        ready_messages = json.loads(get_setting("ticket_ready_messages_json", "[]"))
+        if not isinstance(ready_messages, list):
+            ready_messages = []
+    except Exception:
+        ready_messages = []
+    return jsonify({"ok": True, "items": rows, "unseen_count": unseen, "ready_messages": ready_messages})
 
 
 @app.post("/api/my-report-replies/mark-seen")
@@ -732,9 +804,27 @@ def user_reply_report(rid):
     row = mdb["reports"].find_one({"id": rid, "device_id": did})
     if not row:
         return jsonify({"ok": False, "message": "تیکت پیدا نشد"}), 404
-    msgs = list(row.get("messages") or [])
-    msgs.append({"sender": "user", "text": text, "at": now_iso()})
+    msgs = normalize_report_messages(row.get("messages"), row.get("report_text") or "", row.get("created_at"))
+    msgs.append({"id": uuid.uuid4().hex[:12], "sender": "user", "text": text, "at": now_iso()})
     mdb["reports"].update_one({"id": rid}, {"$set": {"messages": msgs, "report_text": text, "user_seen_at": None}})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/reports/<int:rid>/messages/<msg_id>/delete")
+def user_delete_report_message(rid, msg_id):
+    payload = request.get_json(silent=True) or {}
+    did = get_device_id_from_request(payload)
+    mdb = mongo_db()
+    if mdb is None or not did:
+        return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
+    row = mdb["reports"].find_one({"id": rid, "device_id": did}, {"_id": 0})
+    if not row:
+        return jsonify({"ok": False, "message": "تیکت پیدا نشد"}), 404
+    msgs = normalize_report_messages(row.get("messages"), row.get("report_text") or "", row.get("created_at"))
+    next_msgs = [m for m in msgs if not (str(m.get("id")) == str(msg_id) and m.get("sender") == "user")]
+    if len(next_msgs) == len(msgs):
+        return jsonify({"ok": False, "message": "این پیام قابل حذف نیست."}), 400
+    mdb["reports"].update_one({"id": rid}, {"$set": {"messages": next_msgs}})
     return jsonify({"ok": True})
 
 
@@ -910,7 +1000,7 @@ def admin_dashboard():
     mdb = mongo_db()
     base_stats = {"online_total": 0, "online_ios": 0, "online_android": 0, "online_windows": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
     if mdb is None:
-        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"), global_notice_font_size_px=setting_int("global_notice_font_size_px", 14), global_notice_max_width_px=setting_int("global_notice_max_width_px", 320), global_notice_position=get_setting("global_notice_position", "top-right"), ticket_ready_messages_json=get_setting("ticket_ready_messages_json", "[]"))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
     active_per_category = {row["_id"]: int(row.get("count", 0)) for row in mdb["user_access"].aggregate([{"$group": {"_id": "$category_id", "count": {"$sum": 1}}}])}
@@ -926,7 +1016,7 @@ def admin_dashboard():
             v["file_size"] = s
         else:
             v["file_count"] = None
-            v["file_size"] = "لینک خارجی"
+            v["file_size"] = remote_file_size(v.get("external_url"))
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
     requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 300)
@@ -1036,14 +1126,33 @@ def admin_dashboard():
         "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
     })
 
-    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"), global_notice_font_size_px=setting_int("global_notice_font_size_px", 14), global_notice_max_width_px=setting_int("global_notice_max_width_px", 320), global_notice_position=get_setting("global_notice_position", "top-right"), ticket_ready_messages_json=get_setting("ticket_ready_messages_json", "[]"))
 
 
 @app.get("/admin/receipt/<path:filename>")
 @admin_required
 def admin_receipt(filename):
-    clean = secure_filename(filename)
-    full = os.path.join(RECEIPTS_DIR, clean)
+    clean = (filename or "").strip()
+    rid = request.args.get("rid", "").strip()
+    mdb = mongo_db()
+    if rid.isdigit() and mdb is not None:
+        mdb["purchase_requests"].update_one({"id": int(rid), "receipt_seen_at": None}, {"$set": {"receipt_seen_at": now_iso()}})
+    s3_client = get_s3_client()
+    if s3_client:
+        key = clean
+        if "/" not in key:
+            key = receipt_object_key(secure_filename(key))
+        try:
+            url = s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": LIARA_BUCKET_NAME, "Key": key},
+                ExpiresIn=1800,
+            )
+            return redirect(url)
+        except Exception:
+            pass
+    local_name = secure_filename(clean.split("/")[-1])
+    full = os.path.join(RECEIPTS_DIR, local_name)
     if not os.path.exists(full):
         abort(404)
     return send_file(full)
@@ -1067,15 +1176,22 @@ def admin_report_chat(rid):
             title = cat_by_id.get(ua.get("category_id"))
             if title:
                 titles.append(title)
-    messages = row.get("messages") or []
+    messages = normalize_report_messages(row.get("messages"), row.get("report_text") or "", row.get("created_at"))
     row["messages"] = messages
     for msg in row["messages"]:
         msg["at_clock"] = format_clock(msg.get("at"))
         msg["at_day"] = format_day(msg.get("at"))
+    mdb["reports"].update_one({"id": rid}, {"$set": {"messages": messages, "admin_seen_at": now_iso()}})
     row["created_at_clock"] = format_clock(row.get("created_at"))
     row["created_at_day"] = format_day(row.get("created_at"))
     row["category_titles"] = ", ".join(titles) if titles else "-"
-    return render_template("admin_report_chat.html", report=row)
+    try:
+        ready_messages = json.loads(get_setting("ticket_ready_messages_json", "[]"))
+        if not isinstance(ready_messages, list):
+            ready_messages = []
+    except Exception:
+        ready_messages = []
+    return render_template("admin_report_chat.html", report=row, ready_messages=ready_messages)
 
 
 @app.get("/admin/user-activity/<path:device_id>")
@@ -1300,9 +1416,26 @@ def admin_reply_report(rid):
     if not reply:
         return jsonify({"ok": False, "message": "پاسخ خالی است"}), 400
     row = mdb["reports"].find_one({"id": rid}, {"_id": 0, "messages": 1})
-    msgs = list((row or {}).get("messages") or [])
-    msgs.append({"sender": "admin", "text": reply, "at": now_iso()})
+    msgs = normalize_report_messages((row or {}).get("messages"), "", now_iso())
+    msgs.append({"id": uuid.uuid4().hex[:12], "sender": "admin", "text": reply, "at": now_iso()})
     mdb["reports"].update_one({"id": rid}, {"$set": {"admin_reply": reply, "replied_at": now_iso(), "user_seen_at": None, "messages": msgs}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/reports/<int:rid>/messages/<msg_id>/delete")
+@admin_required
+def admin_delete_report_message(rid, msg_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    row = mdb["reports"].find_one({"id": rid}, {"_id": 0})
+    if not row:
+        return jsonify({"ok": False, "message": "تیکت پیدا نشد"}), 404
+    msgs = normalize_report_messages(row.get("messages"), row.get("report_text") or "", row.get("created_at"))
+    next_msgs = [m for m in msgs if not (str(m.get("id")) == str(msg_id) and m.get("sender") == "admin")]
+    if len(next_msgs) == len(msgs):
+        return jsonify({"ok": False, "message": "این پیام قابل حذف نیست."}), 400
+    mdb["reports"].update_one({"id": rid}, {"$set": {"messages": next_msgs}})
     return jsonify({"ok": True})
 
 
@@ -1554,6 +1687,13 @@ def admin_update_settings():
     selected_pages = [p for p in selected_pages if p in allowed_pages]
     if not selected_pages:
         selected_pages = ["home"]
+    raw_ready_messages = (request.form.get("ticket_ready_messages_json") or "[]").strip()
+    try:
+        parsed_ready_messages = json.loads(raw_ready_messages)
+        if not isinstance(parsed_ready_messages, list):
+            parsed_ready_messages = []
+    except Exception:
+        parsed_ready_messages = []
     updates = {
         "site_update_mode": "1" if request.form.get("site_update_mode") == "1" else "0",
         "site_domain_move_mode": "1" if request.form.get("site_domain_move_mode") == "1" else "0",
@@ -1568,6 +1708,10 @@ def admin_update_settings():
         "global_notice_color": (request.form.get("global_notice_color") or "#0ea5e9").strip()[:32],
         "global_notice_duration_ms": str(duration),
         "global_notice_pages": ",".join(selected_pages),
+        "global_notice_position": "top-right" if (request.form.get("global_notice_position") or "top-right") == "top-right" else "bottom-right",
+        "global_notice_font_size_px": str(max(11, min(28, int(request.form.get("global_notice_font_size_px") or 14)))),
+        "global_notice_max_width_px": str(max(200, min(900, int(request.form.get("global_notice_max_width_px") or 320)))),
+        "ticket_ready_messages_json": json.dumps(parsed_ready_messages, ensure_ascii=False),
     }
     for k, v in updates.items():
         mdb["app_settings"].update_one({"key": k}, {"$set": {"key": k, "value": v, "updated_at": now_iso()}}, upsert=True)
@@ -1593,6 +1737,9 @@ def api_global_notice():
         "text": text,
         "color": get_setting("global_notice_color", "#0ea5e9"),
         "duration_ms": max(1000, setting_int("global_notice_duration_ms", 5000)),
+        "position": get_setting("global_notice_position", "top-right"),
+        "font_size_px": max(11, setting_int("global_notice_font_size_px", 14)),
+        "max_width_px": max(200, setting_int("global_notice_max_width_px", 320)),
     })
 
 

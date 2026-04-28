@@ -29,9 +29,13 @@
     setTimeout(() => box.remove(), 4200);
   }
 
-  function showSiteNotice(message, color, durationMs) {
+  function showSiteNotice(message, color, durationMs, options = {}) {
     const box = document.createElement("div");
     box.className = "iphone-corner-flash";
+    box.style.top = options.position === "top-right" ? "16px" : "";
+    box.style.bottom = options.position === "top-right" ? "auto" : "18px";
+    box.style.fontSize = `${Math.max(11, Number(options.fontSizePx || 14))}px`;
+    box.style.maxWidth = `${Math.max(200, Number(options.maxWidthPx || 320))}px`;
     if (color) box.style.borderColor = color;
     box.innerHTML = `<div>${message}</div>`;
     document.body.appendChild(box);
@@ -172,7 +176,11 @@
       const key = `mx_global_notice_seen_${page}_${btoa(unescape(encodeURIComponent(data.text))).slice(0, 20)}`;
       if (sessionStorage.getItem(key) === "1") return;
       sessionStorage.setItem(key, "1");
-      showSiteNotice(data.text, data.color, data.duration_ms);
+      showSiteNotice(data.text, data.color, data.duration_ms, {
+        position: data.position || "top-right",
+        fontSizePx: data.font_size_px || 14,
+        maxWidthPx: data.max_width_px || 320,
+      });
     } catch (_err) {
       // silent
     }
