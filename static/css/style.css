@@ -111,6 +111,7 @@ body {
   gap: 7px;
   padding: 0 9px;
 }
+.support-fab,
 .survey-fab, .messages-fab {
   position: fixed;
   left: 18px;
@@ -120,8 +121,20 @@ body {
   color: #fff;
   box-shadow: 0 12px 25px rgba(0, 0, 0, 0.35);
 }
-.survey-fab {
+.support-fab {
   bottom: 58px;
+  min-width: 44px;
+  height: 32px;
+  border-radius: 16px;
+  font-size: 13px;
+  background: linear-gradient(120deg, #22c55e, #06b6d4);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+}
+.survey-fab {
+  bottom: 98px;
   min-width: 44px;
   height: 32px;
   border-radius: 16px;
@@ -133,7 +146,7 @@ body {
   padding: 0 9px;
 }
 .messages-fab {
-  bottom: 98px;
+  bottom: 138px;
   width: 34px;
   height: 34px;
   border-radius: 999px;
@@ -612,6 +625,7 @@ th { background: rgba(30, 41, 59, 0.75); }
   .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
   .quick-links .btn { flex-basis: 100%; }
   .report-fab { left: 12px; bottom: 12px; }
-  .survey-fab { left: 12px; bottom: 54px; }
-  .messages-fab { left: 12px; bottom: 94px; }
+  .support-fab { left: 12px; bottom: 52px; }
+  .survey-fab { left: 12px; bottom: 92px; }
+  .messages-fab { left: 12px; bottom: 132px; }
 }

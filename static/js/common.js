@@ -196,6 +196,7 @@
     const reportDeviceInput = document.getElementById("report_device_id");
     const reportPanel = document.getElementById("report-panel");
     const reportToggle = document.getElementById("report-toggle");
+    const supportToggle = document.getElementById("support-toggle");
     const surveyToggle = document.getElementById("survey-toggle");
     const surveyPanel = document.getElementById("survey-panel");
     const surveyForm = document.getElementById("survey-form");
@@ -241,6 +242,15 @@
           const textArea = reportForm ? reportForm.querySelector("textarea[name='report_text']") : null;
           if (textArea) textArea.focus({ preventScroll: true });
         }
+      });
+    }
+    if (supportToggle && reportPanel) {
+      supportToggle.addEventListener("click", () => {
+        reportPanel.classList.remove("hidden");
+        if (reportTypeSelect) reportTypeSelect.value = "پشتیبانی";
+        reportPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        const textArea = reportForm ? reportForm.querySelector("textarea[name='report_text']") : null;
+        if (textArea) textArea.focus({ preventScroll: true });
       });
     }
     if (surveyToggle && reportPanel) {

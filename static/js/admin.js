@@ -558,6 +558,13 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return;
       if (purchaseRowsBody && Array.isArray(data.purchases)) {
+        const activeEl = document.activeElement;
+        const isEditingPurchase =
+          !!activeEl &&
+          purchaseRowsBody.contains(activeEl) &&
+          activeEl instanceof HTMLElement &&
+          (activeEl.tagName === "TEXTAREA" || activeEl.tagName === "INPUT");
+        if (isEditingPurchase) return;
         purchaseRowsBody.innerHTML = data.purchases.map((r) => `
           <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}" data-user-id="${escapeHtml(r.user_id)}">
             <td>کاربر ${r.user_id || "-"}</td>

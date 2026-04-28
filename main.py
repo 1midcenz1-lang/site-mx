@@ -779,7 +779,8 @@ def api_my_videos():
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
     user = mdb["users"].find_one({"device_id": did})
     if not user:
-        return jsonify({"ok": True, "approved_text": CLIENT_APPROVED_TEXT, "categories": []})
+        return jsonify({"ok": True, "approved_text": "هنوز خریدی ثبت نشده است. ابتدا فیش را ارسال کنید.", "categories": []})
+    latest = mdb["purchase_requests"].find_one({"user_id": user["id"]}, sort=[("id", -1)])
     access = list(mdb["user_access"].find({"user_id": user["id"]}, {"_id": 0}))
     categories = []
     for ua in access:
@@ -798,7 +799,15 @@ def api_my_videos():
                 v["file_count"] = None
                 v["file_size"] = remote_file_size(v.get("external_url"))
         categories.append({"id": cat["id"], "title": cat["title"], "videos": vids})
-    return jsonify({"ok": True, "approved_text": CLIENT_APPROVED_TEXT, "categories": categories})
+    approved_text = "هنوز خریدی ثبت نشده است. ابتدا فیش را ارسال کنید."
+    if latest and latest.get("status") == "pending":
+        approved_text = CLIENT_WAITING_REVIEW_TEXT
+    elif latest and latest.get("status") == "rejected":
+        note = (latest.get("admin_note") or "").strip()
+        approved_text = f"درخواست شما رد شده است.{f' دلیل: {note}' if note else ''}"
+    elif categories:
+        approved_text = CLIENT_APPROVED_TEXT
+    return jsonify({"ok": True, "approved_text": approved_text, "categories": categories})
 
 
 @app.get("/api/my-videos/summary")
