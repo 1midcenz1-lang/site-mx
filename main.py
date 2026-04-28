@@ -761,12 +761,14 @@ def my_replies():
         has_admin = any(m.get("sender") == "admin" for m in messages)
         if has_admin and not x.get("user_seen_at"):
             unseen += 1
-    try:
-        ready_messages = json.loads(get_setting("ticket_ready_messages_json", "[]"))
-        if not isinstance(ready_messages, list):
+    ready_messages = []
+    if session.get("admin_logged"):
+        try:
+            ready_messages = json.loads(get_setting("ticket_ready_messages_json", "[]"))
+            if not isinstance(ready_messages, list):
+                ready_messages = []
+        except Exception:
             ready_messages = []
-    except Exception:
-        ready_messages = []
     return jsonify({"ok": True, "items": rows, "unseen_count": unseen, "ready_messages": ready_messages})
 
 
