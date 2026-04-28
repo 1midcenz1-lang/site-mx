@@ -16,15 +16,27 @@
 </section>
 <section class="form-card">
   <h3>گفت‌وگو</h3>
-  <div class="ticket-thread">
+    <div class="ticket-thread">
     {% for m in report.messages %}
     <div class="ticket-msg {% if m.sender == 'admin' %}ticket-admin{% else %}ticket-user{% endif %}">
-      <strong>{% if m.sender == 'admin' %}ادمین{% else %}کاربر{% endif %}</strong>: {{ m.text }}
+      <strong>{% if m.sender == 'admin' %}ادمین{% else %}کاربر{% endif %}</strong>: {{ m.text }} <span class="tiny-text">{% if m.sender == 'admin' %}✓{% else %}✓✓{% endif %}</span>
+      {% if m.sender == 'admin' %}
+      <button class="btn small btn-danger delete-admin-msg-btn" type="button" data-report-id="{{ report.id }}" data-msg-id="{{ m.id }}">⋯ حذف</button>
+      {% endif %}
       <div class="tiny-text">{{ m.at_clock }}<br>{{ m.at_day }}</div>
     </div>
     {% endfor %}
   </div>
   <form class="reply-form" data-report-id="{{ report.id }}" style="margin-top:12px;">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+      <button id="admin-ready-toggle" class="btn small btn-ghost" type="button">+</button>
+      <select id="admin-ready-select" class="hidden">
+        <option value="">متن آماده...</option>
+        {% for rm in ready_messages %}
+        <option value="{{ rm.text }}">{{ rm.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <textarea name="reply_text" rows="3" placeholder="پاسخ ادمین..." required></textarea>
     <button class="btn" type="submit">ثبت پاسخ</button>
   </form>

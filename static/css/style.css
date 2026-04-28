@@ -278,6 +278,18 @@ input, textarea, select {
 
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-sticky-nav {
+  position: sticky;
+  top: 8px;
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.admin-sticky-nav a { color: #fff; text-decoration: none; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.msg-menu-btn { margin-right: 6px; border: 1px solid var(--line); background: transparent; color: #fff; border-radius: 8px; cursor: pointer; }
+.ticket-ready-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 14px; }
 
