@@ -24,6 +24,7 @@
   let lastTestimonialId = 0;
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
+  let receiptModalOpen = false;
   const categoryChips = Array.from(document.querySelectorAll(".category-title-input")).map((input) => ({
     id: input.dataset.categoryId,
     title: input.value,
@@ -225,6 +226,7 @@
       receiptModalActions.querySelectorAll("input[name='category_ids']").forEach((x) => { x.checked = false; });
       receiptModalImage.src = receiptLink.dataset.receiptUrl || receiptLink.getAttribute("href") || "";
       receiptModal.classList.remove("hidden");
+      receiptModalOpen = true;
       const seenCell = row ? row.querySelector(".receipt-seen-cell") : null;
       if (seenCell) seenCell.innerHTML = '<span style="color:#22c55e">👁️</span>';
       return;
@@ -496,6 +498,7 @@
         return;
       }
       showPopup("تایید شد");
+      if (receiptModal) { receiptModal.classList.add("hidden"); receiptModalOpen = false; }
       const row = form.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
@@ -590,6 +593,9 @@
     });
   });
 
+  if (receiptModalClose && receiptModal) receiptModalClose.addEventListener("click", () => { receiptModal.classList.add("hidden"); receiptModalOpen = false; });
+  if (receiptModal) receiptModal.addEventListener("click", (e) => { if (e.target === receiptModal) { receiptModal.classList.add("hidden"); receiptModalOpen = false; } });
+
   async function refreshLiveFeed() {
     if (!purchaseRowsBody && !reportRowsBody) return;
     try {
@@ -597,6 +603,7 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return;
       if (purchaseRowsBody && Array.isArray(data.purchases)) {
+        if (receiptModalOpen) return;
         const activeEl = document.activeElement;
         const isEditingPurchase =
           !!activeEl &&
@@ -611,7 +618,7 @@
             <td>${escapeHtml(r.requested_category)}</td>
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
             <td>${escapeHtml(r.created_at_clock)}<br><span class="tiny-text">${escapeHtml(r.created_at_day)}</span></td>
-            <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" href="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" target="_blank">مشاهده</a></td>
+            <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/${encodeURI(r.receipt_path || "")}?rid=${encodeURIComponent(r.id || "")}" href="/admin/receipt/${encodeURI(r.receipt_path || "")}?rid=${encodeURIComponent(r.id || "")}">مشاهده</a></td>
             <td class="receipt-seen-cell">${r.receipt_seen ? '<span style="color:#22c55e">👁️</span>' : '<span style="color:#ef4444">🙈</span>'}</td>
             <td class="status-cell" data-raw-status="${escapeHtml(r.status_label)}">${statusBadge(r.status_label)}</td>
             <td>${escapeHtml(r.user_note || "-")}</td>
@@ -698,5 +705,3 @@
     setInterval(refreshLiveFeed, 900);
   }
 })();
-  if (receiptModalClose && receiptModal) receiptModalClose.addEventListener("click", () => receiptModal.classList.add("hidden"));
-  if (receiptModal) receiptModal.addEventListener("click", (e) => { if (e.target === receiptModal) receiptModal.classList.add("hidden"); });

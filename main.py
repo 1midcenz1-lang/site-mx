@@ -34,6 +34,11 @@ SAMPLES_DIR = os.path.join(UPLOAD_DIR, "samples")
 
 ALLOWED_RECEIPT_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 ALLOWED_ARCHIVE_EXTENSIONS = {"zip"}
+LIARA_ENDPOINT_URL = os.environ.get("LIARA_ENDPOINT_URL", "").strip()
+LIARA_ACCESS_KEY = os.environ.get("LIARA_ACCESS_KEY", "").strip()
+LIARA_SECRET_KEY = os.environ.get("LIARA_SECRET_KEY", "").strip()
+LIARA_BUCKET_NAME = os.environ.get("LIARA_BUCKET_NAME", "mxdomain").strip() or "mxdomain"
+LIARA_RECEIPTS_PREFIX = os.environ.get("LIARA_RECEIPTS_PREFIX", "mxdomain/uploads/reciepts").strip().strip("/")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-now")
@@ -98,6 +103,48 @@ def normalize_report_messages(raw_messages, fallback_text: str = "", fallback_at
     if not normalized and fallback_text.strip():
         normalized = [{"id": uuid.uuid4().hex[:12], "sender": "user", "text": fallback_text.strip(), "at": fallback_at or now_iso()}]
     return normalized
+
+
+def get_s3_client():
+    if "liara_s3_client" in app.extensions:
+        return app.extensions["liara_s3_client"]
+    if not (LIARA_ENDPOINT_URL and LIARA_ACCESS_KEY and LIARA_SECRET_KEY):
+        app.extensions["liara_s3_client"] = None
+        return None
+    try:
+        boto3_mod = __import__("boto3")
+        client = boto3_mod.client(
+            "s3",
+            endpoint_url=LIARA_ENDPOINT_URL,
+            aws_access_key_id=LIARA_ACCESS_KEY,
+            aws_secret_access_key=LIARA_SECRET_KEY,
+        )
+        app.extensions["liara_s3_client"] = client
+        return client
+    except Exception:
+        app.extensions["liara_s3_client"] = None
+        return None
+
+
+def receipt_object_key(filename: str) -> str:
+    return f"{LIARA_RECEIPTS_PREFIX}/{filename}".strip("/")
+
+
+def save_receipt_file(receipt_file, final_name: str) -> tuple[str, str]:
+    s3_client = get_s3_client()
+    if s3_client:
+        key = receipt_object_key(final_name)
+        receipt_file.stream.seek(0)
+        s3_client.upload_fileobj(
+            receipt_file.stream,
+            LIARA_BUCKET_NAME,
+            key,
+            ExtraArgs={"ContentType": receipt_file.mimetype or "application/octet-stream"},
+        )
+        return "s3", key
+    local_path = os.path.join(RECEIPTS_DIR, final_name)
+    receipt_file.save(local_path)
+    return "local", final_name
 
 
 def format_clock(iso_value: str | None) -> str:
@@ -634,8 +681,8 @@ def submit_request():
         return jsonify({"ok": False, "message": CLIENT_WAITING_REVIEW_TEXT, "pending_exists": True}), 409
     receipt_name = secure_filename(receipt.filename)
     final_name = f"{uuid.uuid4().hex}_{receipt_name}"
-    receipt.save(os.path.join(RECEIPTS_DIR, final_name))
-    mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": final_name, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
+    storage_type, receipt_path = save_receipt_file(receipt, final_name)
+    mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": receipt_path, "receipt_storage": storage_type, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
     mdb["visitors"].update_one({"device_id": did}, {"$inc": {"purchase_count": 1}, "$set": {"last_seen_at": now_iso()}}, upsert=True)
     return jsonify({"ok": True, "message": CLIENT_WAITING_REVIEW_TEXT, "next_url": "/my-videos"})
 
@@ -1085,16 +1132,29 @@ def admin_dashboard():
 @app.get("/admin/receipt/<path:filename>")
 @admin_required
 def admin_receipt(filename):
-    clean = secure_filename(filename)
-    full = os.path.join(RECEIPTS_DIR, clean)
+    clean = (filename or "").strip()
+    rid = request.args.get("rid", "").strip()
+    mdb = mongo_db()
+    if rid.isdigit() and mdb is not None:
+        mdb["purchase_requests"].update_one({"id": int(rid), "receipt_seen_at": None}, {"$set": {"receipt_seen_at": now_iso()}})
+    s3_client = get_s3_client()
+    if s3_client:
+        key = clean
+        if "/" not in key:
+            key = receipt_object_key(secure_filename(key))
+        try:
+            url = s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": LIARA_BUCKET_NAME, "Key": key},
+                ExpiresIn=1800,
+            )
+            return redirect(url)
+        except Exception:
+            pass
+    local_name = secure_filename(clean.split("/")[-1])
+    full = os.path.join(RECEIPTS_DIR, local_name)
     if not os.path.exists(full):
         abort(404)
-    mdb = mongo_db()
-    if mdb is not None:
-        mdb["purchase_requests"].update_many(
-            {"receipt_path": clean, "receipt_seen_at": None},
-            {"$set": {"receipt_seen_at": now_iso()}},
-        )
     return send_file(full)
 
 

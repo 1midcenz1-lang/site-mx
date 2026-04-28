@@ -101,7 +101,7 @@
         <td>{{ r.requested_category }}</td>
         <td class="tiny-text">{{ r.category_titles }}</td>
         <td>{{ r.created_at_clock }}<br><span class="tiny-text">{{ r.created_at_day }}</span></td>
-        <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/{{ r.receipt_path }}" href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
+        <td><a class="receipt-open-link" data-receipt-url="/admin/receipt/{{ r.receipt_path }}?rid={{ r.id }}" href="/admin/receipt/{{ r.receipt_path }}?rid={{ r.id }}">مشاهده</a></td>
         <td class="receipt-seen-cell">{% if r.receipt_seen %}<span style="color:#22c55e">👁️</span>{% else %}<span style="color:#ef4444">🙈</span>{% endif %}</td>
         <td class="status-cell">{{ r.status_label }}</td>
         <td>{{ r.user_note or "-" }}</td>
