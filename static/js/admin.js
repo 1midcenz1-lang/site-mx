@@ -255,6 +255,17 @@
       refreshLiveStats();
       return;
     }
+    const reportDeleteBtn = target.closest(".report-delete-btn");
+    if (reportDeleteBtn) {
+      const rid = reportDeleteBtn.dataset.reportId;
+      const res = await fetch(`/admin/api/reports/${rid}/delete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در حذف ریپورت");
+      showPopup("ریپورت حذف شد");
+      reportDeleteBtn.closest("tr")?.remove();
+      refreshLiveStats();
+      return;
+    }
     const receiptLink = target.closest(".receipt-open-link");
     if (receiptLink && receiptModal && receiptModalImage && receiptModalActions) {
       evt.preventDefault();
@@ -718,7 +729,7 @@
             <td><div class="tiny-text">${escapeHtml(rp.last_sender)}: ${escapeHtml(rp.last_text)}</div><div class="tiny-text">${escapeHtml(rp.last_at_clock)}<br>${escapeHtml(rp.last_at_day)}</div></td>
             <td class="tiny-text">${escapeHtml(rp.category_titles)}</td>
             <td>${escapeHtml(rp.created_at_clock)}<br><span class="tiny-text">${escapeHtml(rp.created_at_day)}</span></td>
-            <td><a class="btn small" href="/admin/reports/${rp.id}">باز کردن تیکت</a> <button class="btn small btn-danger report-ban-btn" data-device-id="${escapeHtml(rp.device_id)}" type="button">بن</button></td>
+            <td><a class="btn small" href="/admin/reports/${rp.id}">باز کردن تیکت</a> <button class="btn small btn-danger report-ban-btn" data-device-id="${escapeHtml(rp.device_id)}" type="button">بن</button> <button class="btn small btn-ghost report-delete-btn" data-report-id="${escapeHtml(rp.id)}" type="button">حذف</button></td>
           </tr>
         `).join("");
       }

@@ -1,5 +1,8 @@
 (function () {
   const list = document.getElementById("messages-list");
+  const newSupportForm = document.getElementById("new-support-form");
+  const newSupportText = document.getElementById("new-support-text");
+  const newSupportResult = document.getElementById("new-support-result");
   if (!list) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId && window.MX.ensureDeviceId())
@@ -93,6 +96,21 @@
             loadMessages();
           });
           body.appendChild(form);
+          const deleteTicketBtn = document.createElement("button");
+          deleteTicketBtn.className = "btn small btn-danger";
+          deleteTicketBtn.type = "button";
+          deleteTicketBtn.textContent = "حذف این تیکت";
+          deleteTicketBtn.addEventListener("click", async () => {
+            const res = await fetch(`/api/reports/${item.id}/delete`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ device_id: deviceId }),
+            });
+            const out = await res.json();
+            if (!res.ok || !out.ok) return;
+            loadMessages();
+          });
+          body.appendChild(deleteTicketBtn);
           body.querySelectorAll(".msg-menu-btn").forEach((btn) => {
             btn.addEventListener("click", async () => {
               const rid = btn.getAttribute("data-rid");
@@ -123,5 +141,27 @@
   }
 
   loadMessages();
+  if (newSupportForm && newSupportText && newSupportResult) {
+    newSupportForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = (newSupportText.value || "").trim();
+      if (!text) return;
+      const fd = new FormData();
+      fd.append("device_id", deviceId);
+      fd.append("report_type", "پشتیبانی");
+      fd.append("report_text", text);
+      const res = await fetch("/api/report", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        newSupportResult.classList.add("error");
+        newSupportResult.textContent = data.message || "خطا در ارسال تیکت";
+        return;
+      }
+      newSupportResult.classList.remove("error");
+      newSupportResult.textContent = "تیکت جدید ثبت شد.";
+      newSupportForm.reset();
+      loadMessages();
+    });
+  }
   setInterval(loadMessages, 5000);
 })();

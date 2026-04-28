@@ -787,6 +787,19 @@ def user_delete_report_message(rid, msg_id):
     return jsonify({"ok": True})
 
 
+@app.post("/api/reports/<int:rid>/delete")
+def user_delete_report(rid):
+    payload = request.get_json(silent=True) or {}
+    did = get_device_id_from_request(payload)
+    mdb = mongo_db()
+    if mdb is None or not did:
+        return jsonify({"ok": False, "message": "اطلاعات ناقص"}), 400
+    res = mdb["reports"].delete_one({"id": rid, "device_id": did})
+    if res.deleted_count < 1:
+        return jsonify({"ok": False, "message": "تیکت پیدا نشد"}), 404
+    return jsonify({"ok": True})
+
+
 @app.get("/api/category-likes")
 def category_likes():
     did = request.args.get("device_id", "").strip()
@@ -1380,6 +1393,18 @@ def admin_delete_report_message(rid, msg_id):
     if len(next_msgs) == len(msgs):
         return jsonify({"ok": False, "message": "این پیام قابل حذف نیست."}), 400
     mdb["reports"].update_one({"id": rid}, {"$set": {"messages": next_msgs}})
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/api/reports/<int:rid>/delete")
+@admin_required
+def admin_delete_report(rid):
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    res = mdb["reports"].delete_one({"id": rid})
+    if res.deleted_count < 1:
+        return jsonify({"ok": False, "message": "تیکت پیدا نشد"}), 404
     return jsonify({"ok": True})
 
 
