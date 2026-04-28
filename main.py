@@ -106,6 +106,32 @@ def save_receipt_file(receipt_file, final_name: str) -> tuple[str, str]:
     return "local", final_name
 
 
+def normalize_receipt_name(raw_name: str, mimetype: str | None = None) -> str:
+    base = secure_filename(raw_name or "").strip("._ ")
+    if not base:
+        base = "receipt"
+    name, ext = os.path.splitext(base)
+    ext = (ext or "").lower()
+    if not ext:
+        lowered = base.lower()
+        for guess in ["jpg", "jpeg", "png", "webp"]:
+            if lowered.endswith(f"_{guess}"):
+                name = base[: -(len(guess) + 1)]
+                ext = f".{guess}"
+                break
+    if not ext and mimetype:
+        mt = mimetype.lower()
+        if "jpeg" in mt or "jpg" in mt:
+            ext = ".jpg"
+        elif "png" in mt:
+            ext = ".png"
+        elif "webp" in mt:
+            ext = ".webp"
+    ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+    clean_name = secure_filename(name) or "receipt"
+    return f"{clean_name}{ext}"
+
+
 def format_clock(iso_value: str | None) -> str:
     if not iso_value:
         return "-"
@@ -638,7 +664,10 @@ def submit_request():
         mdb["users"].insert_one(user)
     if mdb["purchase_requests"].find_one({"user_id": user["id"], "status": "pending"}):
         return jsonify({"ok": False, "message": CLIENT_WAITING_REVIEW_TEXT, "pending_exists": True}), 409
-    receipt_name = secure_filename(receipt.filename)
+    receipt_name = normalize_receipt_name(receipt.filename, receipt.mimetype)
+    ext = receipt_name.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_RECEIPT_EXTENSIONS:
+        return jsonify({"ok": False, "message": "فرمت رسید مجاز نیست."}), 400
     final_name = f"{uuid.uuid4().hex}_{receipt_name}"
     storage_type, receipt_path = save_receipt_file(receipt, final_name)
     mdb["purchase_requests"].insert_one({"id": mongo_next_id("purchase_requests"), "user_id": user["id"], "requested_category_id": category["id"], "receipt_path": receipt_path, "receipt_storage": storage_type, "status": "pending", "admin_note": None, "user_note": note or None, "created_at": now_iso(), "reviewed_at": None})
@@ -1106,12 +1135,15 @@ def admin_dashboard():
 def admin_receipt(filename):
     clean = secure_filename(filename)
     rid = request.args.get("rid", "").strip()
+    wants_download = request.args.get("download") == "1"
     mdb = mongo_db()
     if rid.isdigit() and mdb is not None:
         mdb["purchase_requests"].update_one({"id": int(rid), "receipt_seen_at": None}, {"$set": {"receipt_seen_at": now_iso()}})
     full = os.path.join(RECEIPTS_DIR, clean)
     if not os.path.exists(full):
         abort(404)
+    if wants_download:
+        return send_file(full, as_attachment=True, download_name=clean)
     return send_file(full)
 
 

@@ -17,6 +17,7 @@
   const receiptModal = document.getElementById("receipt-modal");
   const receiptModalImage = document.getElementById("receipt-modal-image");
   const receiptModalClose = document.getElementById("receipt-modal-close");
+  const receiptModalDownload = document.getElementById("receipt-modal-download");
   const receiptModalActions = document.getElementById("receipt-modal-actions");
   const ticketReadyList = document.getElementById("ticket-ready-list");
   const ticketReadyAddBtn = document.getElementById("ticket-ready-add-btn");
@@ -280,7 +281,12 @@
         const title = (label ? label.textContent : "").trim();
         x.checked = !!requestedCategory && title === requestedCategory;
       });
-      receiptModalImage.src = receiptLink.dataset.receiptUrl || receiptLink.getAttribute("href") || "";
+      const receiptUrl = receiptLink.dataset.receiptUrl || receiptLink.getAttribute("href") || "";
+      receiptModalImage.src = receiptUrl;
+      if (receiptModalDownload) {
+        const sep = receiptUrl.includes("?") ? "&" : "?";
+        receiptModalDownload.href = `${receiptUrl}${sep}download=1`;
+      }
       receiptModal.classList.remove("hidden");
       receiptModalOpen = true;
       const seenCell = row ? row.querySelector(".receipt-seen-cell") : null;
