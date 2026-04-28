@@ -11,16 +11,13 @@
   const backupAllBtn = document.getElementById("download-all-backup-btn");
   const purchaseRowsBody = document.getElementById("purchase-rows-body");
   const reportRowsBody = document.getElementById("report-rows-body");
-  const unseenBanner = document.getElementById("admin-unseen-banner");
-  const unseenText = document.getElementById("admin-unseen-text");
+  const userSearchForm = document.getElementById("admin-user-search-form");
+  const userSearchInput = document.getElementById("admin-user-search-input");
   const liveToast = document.getElementById("admin-live-toast");
   let refreshLiveStats = async () => {};
   let lastPurchaseId = 0;
   let lastReportId = 0;
   let lastTestimonialId = 0;
-  let unseenPurchaseCount = Number(localStorage.getItem("mx_unseen_purchase") || "0");
-  let unseenReportCount = Number(localStorage.getItem("mx_unseen_report") || "0");
-  let unseenTestimonialCount = Number(localStorage.getItem("mx_unseen_testimonial") || "0");
   const NOTIF_KEY = "mx_admin_notif_enabled";
   let notificationsEnabled = localStorage.getItem(NOTIF_KEY) === "1";
   const categoryChips = Array.from(document.querySelectorAll(".category-title-input")).map((input) => ({
@@ -80,6 +77,49 @@
     return `<button class="btn small reset-pending-btn" type="button" data-request-id="${rid}">برگشت به pending</button>`;
   }
 
+  function highlightUserPurchases(userId) {
+    if (!purchaseRowsBody) return false;
+    const rows = Array.from(purchaseRowsBody.querySelectorAll("tr"));
+    let matched = false;
+    rows.forEach((row) => {
+      const isTarget = String(row.dataset.userId || "") === String(userId);
+      row.classList.toggle("row-highlight", isTarget);
+      if (isTarget && !matched) {
+        matched = true;
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+    return matched;
+  }
+
+  function normalizeDigits(value) {
+    const fa = "۰۱۲۳۴۵۶۷۸۹";
+    const ar = "٠١٢٣٤٥٦٧٨٩";
+    return String(value || "").replace(/[۰-۹٠-٩]/g, (ch) => {
+      const faIdx = fa.indexOf(ch);
+      if (faIdx >= 0) return String(faIdx);
+      const arIdx = ar.indexOf(ch);
+      if (arIdx >= 0) return String(arIdx);
+      return ch;
+    });
+  }
+
+  function statusBadge(text) {
+    const value = String(text || "").trim();
+    if (value.includes("فیک")) return `<span class="status-pill status-pill-fake">🟧 ${escapeHtml(value)}</span>`;
+    if (value.includes("تایید شده")) return `<span class="status-pill status-pill-ok">🟩 ${escapeHtml(value)}</span>`;
+    if (value.includes("تایید نشده")) return `<span class="status-pill status-pill-bad">🟥 ${escapeHtml(value)}</span>`;
+    return `<span class="status-pill status-pill-pending">🟨 ${escapeHtml(value || "-")}</span>`;
+  }
+
+  function applyStatusBadges() {
+    document.querySelectorAll(".status-cell").forEach((cell) => {
+      const raw = cell.getAttribute("data-raw-status") || cell.textContent || "";
+      cell.setAttribute("data-raw-status", raw);
+      cell.innerHTML = statusBadge(raw);
+    });
+  }
+
   document.addEventListener("click", async (evt) => {
     const target = evt.target;
     if (!(target instanceof Element)) return;
@@ -90,6 +130,17 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return showPopup(data.message || "خطا در بازگشت به pending");
       showPopup("وضعیت به pending برگشت.");
+      const row = resetBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "در انتظار بررسی");
+          cells[6].innerHTML = statusBadge("در انتظار بررسی");
+        }
+        if (cells[8]) cells[8].textContent = "-";
+        if (cells[9]) cells[9].innerHTML = renderPendingActions(rid, row.dataset.requestedCategory || "");
+        row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+      }
       refreshLiveStats();
       refreshLiveFeed();
       return;
@@ -107,6 +158,16 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return showPopup(data.message || "خطا در رد درخواست");
       showPopup("رد شد");
+      const row = rejectBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "تایید نشده");
+          cells[6].innerHTML = statusBadge("تایید نشده");
+        }
+        if (cells[8]) cells[8].textContent = reason || "-";
+        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+      }
       refreshLiveStats();
       refreshLiveFeed();
       return;
@@ -123,6 +184,16 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return showPopup(data.message || "خطا در ثبت فیک");
       showPopup("به عنوان فیک علامت‌گذاری شد.");
+      const row = fakeBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "تایید نشده | فیک");
+          cells[6].innerHTML = statusBadge("تایید نشده | فیک");
+        }
+        if (cells[8]) cells[8].textContent = reason || "-";
+        if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
+      }
       refreshLiveStats();
       refreshLiveFeed();
       return;
@@ -171,18 +242,6 @@
     liveToast.classList.remove("hidden");
     setTimeout(() => liveToast.classList.add("hidden"), 3000);
   }
-
-  function renderUnseenBanner() {
-    const totalUnseen = unseenPurchaseCount + unseenReportCount + unseenTestimonialCount;
-    if (!unseenBanner || !unseenText) return;
-    if (totalUnseen > 0) {
-      unseenBanner.classList.remove("hidden");
-      unseenText.textContent = `خرید: ${unseenPurchaseCount} | ریپورت: ${unseenReportCount} | نظر: ${unseenTestimonialCount}`;
-    } else {
-      unseenBanner.classList.add("hidden");
-    }
-  }
-  renderUnseenBanner();
 
   function renderNotifToggle() {
     if (!notifToggleBtn) return;
@@ -238,10 +297,19 @@
 
   if (backupAllBtn) {
     backupAllBtn.addEventListener("click", () => {
-      window.open("/admin/api/backup-db", "_blank");
-      setTimeout(() => {
-        window.open("/admin/api/backup-receipts", "_blank");
-      }, 600);
+      window.location.href = "/admin/api/backup-all";
+    });
+  }
+
+  if (userSearchForm && userSearchInput) {
+    userSearchForm.addEventListener("submit", (evt) => {
+      evt.preventDefault();
+      const value = normalizeDigits((userSearchInput.value || "").trim());
+      const match = value.match(/(\d+)/);
+      if (!match) return showPopup("شماره کاربر را درست وارد کنید. مثال: کاربر 5");
+      const userId = Number(match[1]);
+      const found = highlightUserPurchases(userId);
+      if (!found) showPopup("این کاربر خریدی نکرده.");
     });
   }
 
@@ -412,7 +480,10 @@
       const row = form.closest("tr");
       if (row) {
         const cells = row.querySelectorAll("td");
-        if (cells[6]) cells[6].textContent = "تایید شده";
+        if (cells[6]) {
+          cells[6].setAttribute("data-raw-status", "تایید شده");
+          cells[6].innerHTML = statusBadge("تایید شده");
+        }
         if (cells[8]) cells[8].textContent = "-";
         if (cells[9]) cells[9].innerHTML = renderResetAction(rid);
       }
@@ -487,21 +558,29 @@
       const data = await res.json();
       if (!res.ok || !data.ok) return;
       if (purchaseRowsBody && Array.isArray(data.purchases)) {
+        const activeEl = document.activeElement;
+        const isEditingPurchase =
+          !!activeEl &&
+          purchaseRowsBody.contains(activeEl) &&
+          activeEl instanceof HTMLElement &&
+          (activeEl.tagName === "TEXTAREA" || activeEl.tagName === "INPUT");
+        if (isEditingPurchase) return;
         purchaseRowsBody.innerHTML = data.purchases.map((r) => `
-          <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}">
+          <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}" data-user-id="${escapeHtml(r.user_id)}">
             <td>کاربر ${r.user_id || "-"}</td>
             <td class="device-id">${escapeHtml(r.device_id)}</td>
             <td>${escapeHtml(r.requested_category)}</td>
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
             <td>${escapeHtml(r.created_at_clock)}<br><span class="tiny-text">${escapeHtml(r.created_at_day)}</span></td>
             <td><a href="/admin/receipt/${encodeURIComponent(r.receipt_path || "")}" target="_blank">مشاهده</a></td>
-            <td>${escapeHtml(r.status_label)}</td>
+            <td class="status-cell" data-raw-status="${escapeHtml(r.status_label)}">${statusBadge(r.status_label)}</td>
             <td>${escapeHtml(r.user_note || "-")}</td>
             <td>${escapeHtml(r.admin_note || "-")}</td>
             <td>${r.status === "pending" ? renderPendingActions(r.id, r.requested_category) : renderResetAction(r.id)}</td>
           </tr>
         `).join("");
         purchaseRowsBody.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+        applyStatusBadges();
       }
       if (reportRowsBody && Array.isArray(data.reports)) {
         reportRowsBody.innerHTML = data.reports.map((rp) => `
@@ -548,24 +627,20 @@
           notifyAdmin("درخواست خرید جدید", `${unseenPurchase} خرید جدید ثبت شد.`);
           showLiveToast("🛒 خرید جدید ثبت شد");
           lastPurchaseId = latestPurchase;
-          unseenPurchaseCount += unseenPurchase;
-          localStorage.setItem("mx_unseen_purchase", String(unseenPurchaseCount));
         }
         if (unseenReport > 0) {
           notifyAdmin("ریپورت جدید", `${unseenReport} ریپورت جدید ثبت شد.`);
           showLiveToast("📩 ریپورت جدید ثبت شد");
           lastReportId = latestReport;
-          unseenReportCount += unseenReport;
-          localStorage.setItem("mx_unseen_report", String(unseenReportCount));
         }
         if (unseenTestimonial > 0) {
           notifyAdmin("نظر جدید", `${unseenTestimonial} نظر جدید ثبت شد.`);
           showLiveToast("💬 نظر جدید ثبت شد");
           lastTestimonialId = latestTestimonial;
-          unseenTestimonialCount += unseenTestimonial;
-          localStorage.setItem("mx_unseen_testimonial", String(unseenTestimonialCount));
         }
-        renderUnseenBanner();
+        if (unseenPurchase > 0 || unseenReport > 0 || unseenTestimonial > 0) {
+          refreshLiveFeed();
+        }
         if (onlineByPageBody && data.online_by_page) {
           const rows = Object.entries(data.online_by_page)
             .map(([page, count]) => `<tr><td>${page}</td><td>${count}</td></tr>`)
@@ -578,7 +653,8 @@
     };
     refreshLiveStats();
     refreshLiveFeed();
-    setInterval(refreshLiveStats, 1000);
-    setInterval(refreshLiveFeed, 1500);
+    applyStatusBadges();
+    setInterval(refreshLiveStats, 700);
+    setInterval(refreshLiveFeed, 900);
   }
 })();

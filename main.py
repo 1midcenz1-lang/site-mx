@@ -6,6 +6,7 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta
 from functools import wraps
+from io import BytesIO
 from urllib import request as urllib_request
 from zoneinfo import ZoneInfo
 
@@ -60,9 +61,8 @@ PAYMENT_TEXT_KHAREJI = (
 )
 
 CLIENT_WAITING_REVIEW_TEXT = (
-    "درحال بررسی پرداختت هستیم «چند ساعت» طول میکشه لطفا تا اتمام این فرایند هیچ پیامی ارسال نکنید\n\n"
-    "ربات پیام ها رو سین میکنه و جواب میده لطفا بعد از ارسال فیش، منتظر ادمین بمونید تا در اولین فرصت فیلم ها رو ارسال کنه، بعضی وقت ها این فرایند چند ساعت طول میکشه\n\n"
-    "ساعت 2 شب تا 10 صبح فیلم ارسال نمیشه لطفا صبور باشید ( ربات پیام ها رو سین میکنه )"
+    "درحال بررسی پرداختت هستیم «چند ساعت» طول میکشه لطفا تا اتمام این فرایند صبور باشید\n\n"
+    "منتظر ادمین بمونید تا در اولین فرصت فیش رو تایید کند تا دسترسی فیلم ها براتون باز بشه و بتونید دانلود کنید\n\n"
 )
 
 CLIENT_APPROVED_TEXT = (
@@ -290,6 +290,14 @@ def setting_int(key: str, default: int) -> int:
         return int(get_setting(key, str(default)))
     except Exception:
         return default
+
+
+def duration_ms_to_seconds_text(value_ms: int) -> str:
+    try:
+        seconds = max(1, int(round(int(value_ms) / 1000)))
+    except Exception:
+        seconds = 5
+    return str(seconds)
 
 
 def seed_mongo():
@@ -770,7 +778,8 @@ def api_my_videos():
         return jsonify({"ok": False, "message": "شناسه دستگاه لازم است."}), 400
     user = mdb["users"].find_one({"device_id": did})
     if not user:
-        return jsonify({"ok": True, "approved_text": CLIENT_APPROVED_TEXT, "categories": []})
+        return jsonify({"ok": True, "approved_text": "هنوز خریدی ثبت نشده است. ابتدا فیش را ارسال کنید.", "categories": []})
+    latest = mdb["purchase_requests"].find_one({"user_id": user["id"]}, sort=[("id", -1)])
     access = list(mdb["user_access"].find({"user_id": user["id"]}, {"_id": 0}))
     categories = []
     for ua in access:
@@ -789,7 +798,15 @@ def api_my_videos():
                 v["file_count"] = None
                 v["file_size"] = remote_file_size(v.get("external_url"))
         categories.append({"id": cat["id"], "title": cat["title"], "videos": vids})
-    return jsonify({"ok": True, "approved_text": CLIENT_APPROVED_TEXT, "categories": categories})
+    approved_text = "هنوز خریدی ثبت نشده است. ابتدا فیش را ارسال کنید."
+    if latest and latest.get("status") == "pending":
+        approved_text = CLIENT_WAITING_REVIEW_TEXT
+    elif latest and latest.get("status") == "rejected":
+        note = (latest.get("admin_note") or "").strip()
+        approved_text = f"درخواست شما رد شده است.{f' دلیل: {note}' if note else ''}"
+    elif categories:
+        approved_text = CLIENT_APPROVED_TEXT
+    return jsonify({"ok": True, "approved_text": approved_text, "categories": categories})
 
 
 @app.get("/api/my-videos/summary")
@@ -893,7 +910,7 @@ def admin_dashboard():
     mdb = mongo_db()
     base_stats = {"online_total": 0, "online_ios": 0, "online_android": 0, "online_windows": 0, "total_reports": 0, "total_visitors": 0, "total_purchases": 0, "approved_receipts": 0, "rejected_receipts": 0, "pending_receipts": 0, "today_purchases": 0, "today_approved": 0, "today_rejected": 0, "today_visitors": 0, "yesterday_purchases": 0, "yesterday_approved": 0, "yesterday_rejected": 0, "yesterday_visitors": 0, "active_last_minute": 0}
     if mdb is None:
-        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
+        return render_template("admin_dashboard.html", requests_rows=[], categories=[], videos=[], reports=[], testimonials=[], visitors=[], activity_rows=[], online_by_page={}, stats=base_stats, visitors_search="", auth_users=[], server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
     categories = list(mdb["categories"].find({}, {"_id": 0}).sort("id", 1))
     active_per_category = {row["_id"]: int(row.get("count", 0)) for row in mdb["user_access"].aggregate([{"$group": {"_id": "$category_id", "count": {"$sum": 1}}}])}
@@ -1009,7 +1026,6 @@ def admin_dashboard():
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
             "report_count": report_count,
-            "report_link": f"/admin?q={did}",
         })
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
@@ -1020,7 +1036,7 @@ def admin_dashboard():
         "pending_receipts": mdb["purchase_requests"].count_documents({"status": "pending"}),
     })
 
-    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_ms=setting_int("global_notice_duration_ms", 5000), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
+    return render_template("admin_dashboard.html", requests_rows=requests_rows, categories=categories, videos=videos, reports=reports, testimonials=testimonials, visitors=visitors, activity_rows=activity_rows, online_by_page=online_by_page, stats=base_stats, visitors_search=q, auth_users=auth_users, server_now=datetime.now(TEHRAN_TZ).strftime("%I:%M:%S %p"), server_day=datetime.now(TEHRAN_TZ).strftime("%m/%d/%Y"), site_update_mode=setting_bool("site_update_mode", False), site_domain_move_mode=setting_bool("site_domain_move_mode", False), site_domain_move_target=get_setting("site_domain_move_target", DEFAULT_SITE_DOMAIN_MOVE_TARGET), utc_adjust_hours=setting_int("utc_adjust_hours", DEFAULT_UTC_ADJUST_HOURS), max_devices_per_user=setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER), maintenance_fallback_url=get_setting("maintenance_fallback_url", "http://mxdomain.top:5000"), purchase_enabled=setting_bool("purchase_enabled", True), purchase_disabled_message=get_setting("purchase_disabled_message", "فعلا خرید بسته است. لطفا بعدا دوباره امتحان کنید."), global_notice_enabled=setting_bool("global_notice_enabled", False), global_notice_text=get_setting("global_notice_text", ""), global_notice_color=get_setting("global_notice_color", "#0ea5e9"), global_notice_duration_seconds=duration_ms_to_seconds_text(setting_int("global_notice_duration_ms", 5000)), global_notice_pages=get_setting("global_notice_pages", "home,my-videos,buy"))
 
 
 @app.get("/admin/receipt/<path:filename>")
@@ -1060,6 +1076,65 @@ def admin_report_chat(rid):
     row["created_at_day"] = format_day(row.get("created_at"))
     row["category_titles"] = ", ".join(titles) if titles else "-"
     return render_template("admin_report_chat.html", report=row)
+
+
+@app.get("/admin/user-activity/<path:device_id>")
+@admin_required
+def admin_user_activity(device_id):
+    mdb = mongo_db()
+    if mdb is None:
+        return redirect("/admin")
+    did = (device_id or "").strip()
+    if not did:
+        return redirect("/admin")
+
+    visitor = mdb["visitors"].find_one({"device_id": did}, {"_id": 0}) or {}
+    user = mdb["users"].find_one({"device_id": did}, {"_id": 0}) or {}
+    user_id = user.get("id")
+
+    categories = list(mdb["categories"].find({}, {"_id": 0, "id": 1, "title": 1}))
+    cat_by_id = {c.get("id"): c.get("title") for c in categories}
+    access_titles = []
+    if user_id:
+        for ua in mdb["user_access"].find({"user_id": user_id}, {"_id": 0, "category_id": 1}):
+            title = cat_by_id.get(ua.get("category_id"))
+            if title:
+                access_titles.append(title)
+
+    liked_titles = []
+    for lk in mdb["category_likes"].find({"device_id": did}, {"_id": 0, "category_id": 1}):
+        title = cat_by_id.get(lk.get("category_id"))
+        if title:
+            liked_titles.append(title)
+
+    purchases = []
+    if user_id:
+        for row in mdb["purchase_requests"].find({"user_id": user_id}, {"_id": 0}).sort("id", -1).limit(100):
+            req_cat = cat_by_id.get(row.get("requested_category_id"), "-")
+            purchases.append({
+                **row,
+                "requested_category": req_cat,
+                "status_label": purchase_status_label(row.get("status"), bool(row.get("is_fake_receipt"))),
+                "created_at_clock": format_clock(row.get("created_at")),
+                "created_at_day": format_day(row.get("created_at")),
+            })
+
+    reports = []
+    for rp in mdb["reports"].find({"device_id": did}, {"_id": 0}).sort("id", -1).limit(100):
+        rp["created_at_clock"] = format_clock(rp.get("created_at"))
+        rp["created_at_day"] = format_day(rp.get("created_at"))
+        reports.append(rp)
+
+    return render_template(
+        "admin_user_activity.html",
+        device_id=did,
+        user_id=user_id,
+        visitor=visitor,
+        access_titles="، ".join(access_titles) if access_titles else "-",
+        liked_titles="، ".join(liked_titles) if liked_titles else "-",
+        purchases=purchases,
+        reports=reports,
+    )
 
 
 @app.post("/admin/api/categories")
@@ -1322,6 +1397,30 @@ def admin_backup_receipts():
     return send_file(zip_path, as_attachment=True, download_name="receipts_backup.zip")
 
 
+@app.get("/admin/api/backup-all")
+@admin_required
+def admin_backup_all():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    import json
+
+    payload = {}
+    for name in ["app_settings", "categories", "videos", "users", "purchase_requests", "reports", "visitors", "testimonials", "auth_users", "auth_user_devices", "user_access", "presence_sessions"]:
+        payload[name] = list(mdb[name].find({}, {"_id": 0}))
+
+    db_json = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    bundle_bytes = BytesIO()
+    with zipfile.ZipFile(bundle_bytes, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mongo_backup.json", db_json)
+        for name in os.listdir(RECEIPTS_DIR):
+            full = os.path.join(RECEIPTS_DIR, name)
+            if os.path.isfile(full):
+                zf.write(full, arcname=f"receipts/{name}")
+    bundle_bytes.seek(0)
+    return send_file(bundle_bytes, as_attachment=True, download_name="site_mx_backup_bundle.zip", mimetype="application/zip")
+
+
 @app.get("/admin/api/live-stats")
 @admin_required
 def admin_live_stats():
@@ -1445,9 +1544,9 @@ def admin_update_settings():
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    duration_raw = request.form.get("global_notice_duration_ms") or "5000"
+    duration_raw = request.form.get("global_notice_duration_seconds") or "5"
     try:
-        duration = max(1000, min(20000, int(duration_raw)))
+        duration = max(1, int(duration_raw)) * 1000
     except Exception:
         duration = 5000
     selected_pages = request.form.getlist("global_notice_pages")
@@ -1493,7 +1592,7 @@ def api_global_notice():
         "enabled": True,
         "text": text,
         "color": get_setting("global_notice_color", "#0ea5e9"),
-        "duration_ms": max(1000, min(20000, setting_int("global_notice_duration_ms", 5000))),
+        "duration_ms": max(1000, setting_int("global_notice_duration_ms", 5000)),
     })
 
 

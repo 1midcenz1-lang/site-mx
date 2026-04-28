@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}جزئیات کاربر{% endblock %}
+{% block content %}
+<section class="topbar">
+  <h1>جزئیات کامل کاربر</h1>
+  <div class="topbar-actions">
+    <a class="btn btn-ghost" href="/admin">بازگشت به داشبورد</a>
+  </div>
+</section>
+
+<section class="grid-3">
+  <article class="card"><h3>کاربر</h3><p>{% if user_id %}کاربر {{ user_id }}{% else %}-{% endif %}</p></article>
+  <article class="card"><h3>device_id</h3><p class="device-id">{{ device_id }}</p></article>
+  <article class="card"><h3>آخرین حضور</h3><p>{{ visitor.last_seen_at or "-" }}</p></article>
+</section>
+
+<section class="grid-2">
+  <article class="card">
+    <h3>اطلاعات دستگاه</h3>
+    <p>Browser: {{ visitor.browser_name or "-" }}</p>
+    <p>OS: {{ visitor.os_name or "-" }}</p>
+    <p>تعداد ورود: {{ visitor.visit_count or 0 }}</p>
+    <p>بن: {% if visitor.is_banned %}بله{% else %}خیر{% endif %}</p>
+  </article>
+  <article class="card">
+    <h3>دسته‌ها</h3>
+    <p><strong>دسترسی‌ها:</strong> {{ access_titles }}</p>
+    <p><strong>لایک‌ها:</strong> {{ liked_titles }}</p>
+  </article>
+</section>
+
+<section class="table-wrap">
+  <h2>خریدها</h2>
+  <table>
+    <thead>
+      <tr><th>ID</th><th>دسته درخواستی</th><th>وضعیت</th><th>یادداشت کاربر</th><th>یادداشت ادمین</th><th>زمان</th></tr>
+    </thead>
+    <tbody>
+      {% if purchases %}
+        {% for p in purchases %}
+        <tr>
+          <td>{{ p.id }}</td>
+          <td>{{ p.requested_category }}</td>
+          <td>{{ p.status_label }}</td>
+          <td>{{ p.user_note or "-" }}</td>
+          <td>{{ p.admin_note or "-" }}</td>
+          <td>{{ p.created_at_clock }}<br><span class="tiny-text">{{ p.created_at_day }}</span></td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="6">خریدی ثبت نشده است.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+
+<section class="table-wrap">
+  <h2>ریپورت‌ها</h2>
+  <table>
+    <thead>
+      <tr><th>ID</th><th>موضوع</th><th>متن</th><th>زمان</th><th>لینک</th></tr>
+    </thead>
+    <tbody>
+      {% if reports %}
+        {% for rp in reports %}
+        <tr>
+          <td>{{ rp.id }}</td>
+          <td>{{ rp.report_type or "-" }}</td>
+          <td>{{ rp.report_text or "-" }}</td>
+          <td>{{ rp.created_at_clock }}<br><span class="tiny-text">{{ rp.created_at_day }}</span></td>
+          <td><a href="/admin/reports/{{ rp.id }}">باز کردن تیکت</a></td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="5">ریپورتی ثبت نشده است.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

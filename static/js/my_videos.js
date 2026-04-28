@@ -20,11 +20,11 @@
     wrap.innerHTML = `
       <article class="card tutorial-card">
         <h3>آموزش باز کردن ZIP در iPhone</h3>
-        <video class="video-box" controls preload="metadata" playsinline src="https://mxdomain.storage.c2.liara.space/amoozesh_iphone.mp4"></video>
+        <video class="video-box" controls preload="metadata" playsinline src="https://mxdomain.storage.c2.liara.space/iphone.MOV"></video>
       </article>
       <article class="card tutorial-card">
         <h3>آموزش باز کردن ZIP در Android</h3>
-        <video class="video-box" controls preload="metadata" playsinline src="https://mxdomain.storage.c2.liara.space/amoozesh_android.mp4"></video>
+        <video class="video-box" controls preload="metadata" playsinline src="https://mxdomain.storage.c2.liara.space/android.MOV"></video>
       </article>
     `;
     container.appendChild(wrap);
@@ -173,4 +173,5 @@
   }
 
   loadVideos();
+  setInterval(loadVideos, 8000);
 })();

@@ -6,14 +6,8 @@
   <div class="topbar-actions">
     <button id="notif-toggle-btn" class="btn btn-ghost" type="button">نوتیف: خاموش</button>
     <button id="download-all-backup-btn" class="btn" type="button">دانلود بکاپ دیتا (DB + Receipts)</button>
-    <a class="btn btn-ghost" href="/admin/api/backup-db">دانلود بکاپ DB</a>
-    <a class="btn btn-ghost" href="/admin/api/backup-receipts">دانلود ZIP رسیدها</a>
     <a class="btn btn-ghost" href="/admin_logout">خروج</a>
   </div>
-</section>
-<section id="admin-unseen-banner" class="alert-banner hidden">
-  <strong>🔔 مورد دیده‌نشده دارید:</strong>
-  <span id="admin-unseen-text"></span>
 </section>
 <div id="admin-live-toast" class="hidden" style="position:fixed;top:12px;right:12px;z-index:1300;"></div>
 <section class="card">
@@ -67,10 +61,10 @@
 <br>
 <section class="table-wrap scroll-box">
   <h2>جستجو کاربر</h2>
-  <form method="GET" class="form-card">
+  <form id="admin-user-search-form" method="GET" class="form-card">
     <label>مثال: کاربر 657</label>
-    <input name="q" value="{{ visitors_search }}" />
-    <button class="btn small" type="submit">اعمال</button>
+    <input id="admin-user-search-input" name="q" value="{{ visitors_search }}" />
+    <button id="admin-user-search-btn" class="btn small" type="submit">اعمال</button>
   </form>
 </section>
 <br>
@@ -93,14 +87,14 @@
     </thead>
     <tbody id="purchase-rows-body">
       {% for r in requests_rows %}
-      <tr data-request-id="{{ r.id }}" data-requested-category="{{ r.requested_category|e }}">
+      <tr data-request-id="{{ r.id }}" data-requested-category="{{ r.requested_category|e }}" data-user-id="{{ r.user_id }}">
         <td>کاربر {{ r.user_id }}</td>
         <td class="device-id">{{ r.device_id }}</td>
         <td>{{ r.requested_category }}</td>
         <td class="tiny-text">{{ r.category_titles }}</td>
         <td>{{ r.created_at_clock }}<br><span class="tiny-text">{{ r.created_at_day }}</span></td>
         <td><a href="/admin/receipt/{{ r.receipt_path }}" target="_blank">مشاهده</a></td>
-        <td>{{ r.status_label }}</td>
+        <td class="status-cell">{{ r.status_label }}</td>
         <td>{{ r.user_note or "-" }}</td>
         <td>{{ r.admin_note or "-" }}</td>
         <td>
@@ -138,13 +132,13 @@
         <td class="device-id">{{ a.device_id }}</td>
         <td>{{ a.browser_name }}</td>
         <td>{{ a.os_name }}</td>
-        <td>{{ a.purchase_status_label }}</td>
+        <td class="status-cell">{{ a.purchase_status_label }}</td>
         <td>{{ a.last_seen_at }}<br><span class="tiny-text">{{ a.last_seen_day }}</span></td>
         <td>{{ a.visit_count }}</td>
         <td class="tiny-text">{{ a.liked_titles }}</td>
         <td class="tiny-text">{{ a.access_titles }}</td>
         <td>{{ a.report_count }}</td>
-        <td><a href="{{ a.report_link }}">مشاهده جزئیات</a></td>
+        <td><a href="{{ url_for('admin_user_activity', device_id=a.device_id) }}">مشاهده جزئیات</a></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -303,8 +297,8 @@
 <section class="form-card settings-card">
   <h2>تنظیمات سیستم (DB)</h2>
   <form id="settings-form" class="settings-grid">
-    <label><input type="checkbox" name="site_update_mode" value="1" {% if site_update_mode %}checked{% endif %}/> حالت بروزرسانی</label>
-    <label><input type="checkbox" name="site_domain_move_mode" value="1" {% if site_domain_move_mode %}checked{% endif %}/> حالت انتقال دامنه</label>
+    <label class="setting-toggle"><input type="checkbox" name="site_update_mode" value="1" {% if site_update_mode %}checked{% endif %}/> حالت بروزرسانی</label>
+    <label class="setting-toggle"><input type="checkbox" name="site_domain_move_mode" value="1" {% if site_domain_move_mode %}checked{% endif %}/> حالت انتقال دامنه</label>
     <label>دامنه جدید</label>
     <input name="site_domain_move_target" value="{{ site_domain_move_target }}" />
     <label>لینک بکاپ زمان بروزرسانی</label>
@@ -313,23 +307,23 @@
     <input type="number" name="utc_adjust_hours" value="{{ utc_adjust_hours }}" />
     <label>حداکثر دستگاه برای هر اکانت</label>
     <input type="number" name="max_devices_per_user" min="1" max="10" value="{{ max_devices_per_user }}" />
-    <label><input type="checkbox" name="purchase_enabled" value="1" {% if purchase_enabled %}checked{% endif %}/> خرید باز باشد</label>
+    <label class="setting-toggle"><input type="checkbox" name="purchase_enabled" value="1" {% if purchase_enabled %}checked{% endif %}/> خرید باز باشد</label>
     <label>متن زمانی که خرید بسته است (پاپ‌آپ قرمز)</label>
     <textarea name="purchase_disabled_message" rows="3">{{ purchase_disabled_message }}</textarea>
     <hr>
     <h3>نوتیف سراسری سایت</h3>
-    <label><input type="checkbox" name="global_notice_enabled" value="1" {% if global_notice_enabled %}checked{% endif %}/> فعال باشد</label>
+    <label class="setting-toggle"><input type="checkbox" name="global_notice_enabled" value="1" {% if global_notice_enabled %}checked{% endif %}/> فعال باشد</label>
     <label>متن نوتیف</label>
     <textarea name="global_notice_text" rows="2">{{ global_notice_text }}</textarea>
     <label>رنگ نوتیف</label>
     <input type="color" name="global_notice_color" value="{{ global_notice_color }}" />
-    <label>زمان نمایش (میلی‌ثانیه)</label>
-    <input type="number" name="global_notice_duration_ms" min="1000" max="20000" value="{{ global_notice_duration_ms }}" />
+    <label>زمان نمایش (ثانیه)</label>
+    <input type="number" step="1" name="global_notice_duration_seconds" value="{{ global_notice_duration_seconds }}" />
     {% set selected_pages = (global_notice_pages or '').split(',') %}
     <label>صفحه‌ها</label>
-    <label><input type="checkbox" name="global_notice_pages" value="home" {% if 'home' in selected_pages %}checked{% endif %}/> صفحه اصلی</label>
-    <label><input type="checkbox" name="global_notice_pages" value="my-videos" {% if 'my-videos' in selected_pages %}checked{% endif %}/> صفحه فایل‌های من</label>
-    <label><input type="checkbox" name="global_notice_pages" value="buy" {% if 'buy' in selected_pages %}checked{% endif %}/> صفحه خرید</label>
+    <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="home" {% if 'home' in selected_pages %}checked{% endif %}/> صفحه اصلی</label>
+    <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="my-videos" {% if 'my-videos' in selected_pages %}checked{% endif %}/> صفحه فایل‌های من</label>
+    <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="buy" {% if 'buy' in selected_pages %}checked{% endif %}/> صفحه خرید</label>
     <button class="btn" type="submit">ذخیره تنظیمات</button>
   </form>
 </section>
