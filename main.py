@@ -5,6 +5,7 @@ import string
 import json
 import uuid
 import zipfile
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
@@ -44,6 +45,10 @@ TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 DEFAULT_SITE_DOMAIN_MOVE_TARGET = "https://mxdomain.liara.run"
 DEFAULT_UTC_ADJUST_HOURS = 4
 DEFAULT_MAX_DEVICES_PER_USER = 2
+REMOTE_FILE_SIZE_TIMEOUT_SECONDS = 1.2
+REMOTE_FILE_SIZE_CACHE_TTL_SECONDS = 6 * 60 * 60
+REMOTE_FILE_SIZE_MAX_NETWORK_CHECKS_PER_REQUEST = 15
+_remote_file_size_cache: dict[str, tuple[float, str]] = {}
 
 PAYMENT_TEXT_IRANI = (
     "کانال ایرانی دارای 100 فیلم با کیفیت میباشد\n\n"
@@ -200,17 +205,26 @@ def local_zip_info(file_path: str | None) -> tuple[int | None, str]:
     return file_count, human_size(size)
 
 
-def remote_file_size(url: str | None) -> str:
+def remote_file_size(url: str | None, allow_network: bool = True) -> str:
     if not url:
         return "-"
+    now_ts = time.time()
+    cached = _remote_file_size_cache.get(url)
+    if cached and (now_ts - cached[0] <= REMOTE_FILE_SIZE_CACHE_TTL_SECONDS):
+        return cached[1]
+    if not allow_network:
+        return cached[1] if cached else "-"
     try:
         req = urllib_request.Request(url, method="HEAD")
-        with urllib_request.urlopen(req, timeout=8) as resp:
+        with urllib_request.urlopen(req, timeout=REMOTE_FILE_SIZE_TIMEOUT_SECONDS) as resp:
             content_length = resp.headers.get("Content-Length")
             if content_length and str(content_length).isdigit():
-                return human_size(int(content_length))
+                val = human_size(int(content_length))
+                _remote_file_size_cache[url] = (now_ts, val)
+                return val
     except Exception:
-        return "-"
+        pass
+    _remote_file_size_cache[url] = (now_ts, "-")
     return "-"
 
 
@@ -1012,6 +1026,7 @@ def admin_dashboard():
         c["active_count"] = active_per_category.get(c.get("id"), 0)
     cat_by_id = {c["id"]: c for c in categories}
     videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(180))
+    remote_size_checks_left = REMOTE_FILE_SIZE_MAX_NETWORK_CHECKS_PER_REQUEST
     for v in videos:
         v["category_title"] = (cat_by_id.get(v.get("category_id")) or {}).get("title", "-")
         if v.get("source_type") == "file":
@@ -1020,7 +1035,10 @@ def admin_dashboard():
             v["file_size"] = s
         else:
             v["file_count"] = None
-            v["file_size"] = remote_file_size(v.get("external_url"))
+            allow_network = remote_size_checks_left > 0
+            v["file_size"] = remote_file_size(v.get("external_url"), allow_network=allow_network)
+            if allow_network:
+                remote_size_checks_left -= 1
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
     requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 300)
@@ -1059,17 +1077,47 @@ def admin_dashboard():
         else:
             vf = {"device_id": {"$regex": q, "$options": "i"}}
     visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(1500))
-    code_by_device = {x.get("device_id"): x.get("access_code") for x in mdb["auth_user_devices"].find({}, {"_id": 0, "device_id": 1, "access_code": 1}) if x.get("device_id")}
+    visitor_device_ids = [v.get("device_id") for v in visitors if v.get("device_id")]
+    code_by_device = {
+        x.get("device_id"): x.get("access_code")
+        for x in mdb["auth_user_devices"].find(
+            {"device_id": {"$in": visitor_device_ids}},
+            {"_id": 0, "device_id": 1, "access_code": 1},
+        )
+        if x.get("device_id")
+    } if visitor_device_ids else {}
+    visitor_users = list(mdb["users"].find(
+        {"device_id": {"$in": visitor_device_ids}} if visitor_device_ids else {"device_id": "__none__"},
+        {"_id": 0, "id": 1, "device_id": 1},
+    ))
+    user_by_device = {u.get("device_id"): u for u in visitor_users if u.get("device_id")}
+    visitor_user_ids = [u.get("id") for u in visitor_users if u.get("id") is not None]
+    active_user_ids = {
+        row.get("_id")
+        for row in mdb["user_access"].aggregate([
+            {"$match": {"user_id": {"$in": visitor_user_ids}}},
+            {"$group": {"_id": "$user_id"}},
+        ])
+    } if visitor_user_ids else set()
     for v in visitors:
         if code_by_device.get(v.get("device_id")):
             v["username"] = code_by_device.get(v.get("device_id"))
-        user = mdb["users"].find_one({"device_id": v.get("device_id")}, {"_id": 0, "id": 1})
-        has_active_access = bool(user and mdb["user_access"].count_documents({"user_id": user.get("id")}) > 0)
+        user = user_by_device.get(v.get("device_id"))
+        has_active_access = bool(user and user.get("id") in active_user_ids)
         v["purchase_status_label"] = "تایید شده" if has_active_access else "تایید نشده"
 
+    auth_users_raw = list(mdb["auth_users"].find({}, {"_id": 0}).sort("id", -1).limit(300))
+    auth_codes = [a.get("access_code") for a in auth_users_raw if a.get("access_code")]
+    auth_devices_by_code = {}
+    if auth_codes:
+        for d in mdb["auth_user_devices"].find({"access_code": {"$in": auth_codes}}, {"_id": 0, "access_code": 1, "last_seen_at": 1}):
+            code = d.get("access_code")
+            if not code:
+                continue
+            auth_devices_by_code.setdefault(code, []).append(d)
     auth_users = []
-    for au in mdb["auth_users"].find({}, {"_id": 0}).sort("id", -1).limit(300):
-        devs = list(mdb["auth_user_devices"].find({"access_code": au.get("access_code")}, {"_id": 0, "last_seen_at": 1}))
+    for au in auth_users_raw:
+        devs = auth_devices_by_code.get(au.get("access_code"), [])
         auth_users.append({**au, "device_count": len(devs), "last_device_seen": max([d.get("last_seen_at", "") for d in devs], default=None)})
 
     online_by_page = {}
@@ -1092,22 +1140,34 @@ def admin_dashboard():
         elif key == "/messages":
             label = "تیکت‌ها"
         online_by_page[label] = int(row.get("count", 0))
+    likes_by_device = {}
+    if visitor_device_ids:
+        for lk in mdb["category_likes"].find({"device_id": {"$in": visitor_device_ids}}, {"_id": 0, "device_id": 1, "category_id": 1}):
+            did = lk.get("device_id")
+            cat = cat_by_id.get(lk.get("category_id"))
+            if did and cat:
+                likes_by_device.setdefault(did, []).append(cat.get("title"))
+    access_titles_by_user_id = {}
+    if visitor_user_ids:
+        for ua in mdb["user_access"].find({"user_id": {"$in": visitor_user_ids}}, {"_id": 0, "user_id": 1, "category_id": 1}):
+            uid = ua.get("user_id")
+            c = cat_by_id.get(ua.get("category_id"))
+            if uid is not None and c:
+                access_titles_by_user_id.setdefault(uid, []).append(c.get("title"))
+    report_count_by_device = {
+        row.get("_id"): int(row.get("count", 0))
+        for row in mdb["reports"].aggregate([
+            {"$match": {"device_id": {"$in": visitor_device_ids}}},
+            {"$group": {"_id": "$device_id", "count": {"$sum": 1}}},
+        ])
+    } if visitor_device_ids else {}
     activity_rows = []
     for v in visitors:
         did = v.get("device_id")
-        liked_titles = []
-        for lk in mdb["category_likes"].find({"device_id": did}, {"_id": 0, "category_id": 1}):
-            cat = cat_by_id.get(lk.get("category_id"))
-            if cat:
-                liked_titles.append(cat.get("title"))
-        user = mdb["users"].find_one({"device_id": did}, {"_id": 0, "id": 1})
-        access_titles = []
-        if user:
-            for ua in mdb["user_access"].find({"user_id": user.get("id")}, {"_id": 0, "category_id": 1}):
-                c = cat_by_id.get(ua.get("category_id"))
-                if c:
-                    access_titles.append(c.get("title"))
-        report_count = mdb["reports"].count_documents({"device_id": did})
+        liked_titles = likes_by_device.get(did, [])
+        user = user_by_device.get(did)
+        access_titles = access_titles_by_user_id.get(user.get("id"), []) if user else []
+        report_count = report_count_by_device.get(did, 0)
         activity_rows.append({
             "user_id": user.get("id") if user else None,
             "device_id": did,
