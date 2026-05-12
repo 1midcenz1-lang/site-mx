@@ -228,7 +228,7 @@ def remote_file_size(url: str | None, allow_network: bool = True) -> str:
     return "-"
 
 
-def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict[int, dict], limit: int = 300):
+def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict[int, dict], limit: int | None = None):
     access_rows = list(mdb["user_access"].find({}, {"_id": 0, "user_id": 1, "category_id": 1}))
     access_by_user: dict[int, list[int]] = {}
     for ua in access_rows:
@@ -238,7 +238,10 @@ def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict
             continue
         access_by_user.setdefault(uid, []).append(cid)
     rows = []
-    for r in mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1).limit(limit):
+    query = mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1)
+    if isinstance(limit, int) and limit > 0:
+        query = query.limit(limit)
+    for r in query:
         user = users_by_id.get(r.get("user_id"), {})
         req_cat = cat_by_id.get(r.get("requested_category_id"), {})
         granted_ids = access_by_user.get(r.get("user_id"), [])
@@ -1120,7 +1123,7 @@ def admin_dashboard():
     videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(180))
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
-    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 300)
+    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, None)
     reports = build_admin_reports(mdb, cat_by_id, 300)
 
     testimonials = []
@@ -1802,7 +1805,7 @@ def admin_live_feed():
     categories = list(mdb["categories"].find({}, {"_id": 0, "id": 1, "title": 1}))
     cat_by_id = {c["id"]: c for c in categories}
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
-    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 120)
+    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, None)
     reports = build_admin_reports(mdb, cat_by_id, 120)
     report_rows = []
     for rp in reports:
