@@ -8,6 +8,7 @@
   const notifToggleBtn = document.getElementById("notif-toggle-btn");
   const onlineByPageBody = document.getElementById("online-by-page-body");
   const settingsForm = document.getElementById("settings-form");
+  const resetAuthLocksBtn = document.getElementById("reset-auth-locks-btn");
   const backupAllBtn = document.getElementById("download-all-backup-btn");
   const purchaseRowsBody = document.getElementById("purchase-rows-body");
   const reportRowsBody = document.getElementById("report-rows-body");
@@ -294,6 +295,16 @@
       return;
     }
   });
+
+  if (resetAuthLocksBtn) {
+    resetAuthLocksBtn.addEventListener("click", async () => {
+      if (!window.confirm("قفل دستگاه تمام کاربران ریست شود؟")) return;
+      const res = await fetch("/khnowledge-mx/api/auth/reset-device-locks", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در ریست قفل‌ها", "error");
+      showPopup("قفل لاگین همه کاربران ریست شد.");
+    });
+  }
 
   setInterval(() => {
     const now = new Date();

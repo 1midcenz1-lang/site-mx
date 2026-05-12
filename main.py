@@ -491,6 +491,21 @@ def require_auth():
     mdb = mongo_db()
     if mdb is None:
         return None, (jsonify({"ok": False, "message": "MongoDB unavailable"}), 503)
+    auth_user_id = session.get("auth_user_id")
+    auth_device_id = (session.get("auth_device_id") or "").strip()
+    if not auth_user_id:
+        return None, (jsonify({"ok": False, "message": "ابتدا وارد حساب شوید."}), 401)
+    auth_user = mdb["auth_users"].find_one({"id": auth_user_id}, {"_id": 0, "locked_device_id": 1})
+    if not auth_user:
+        session.pop("auth_user_id", None)
+        session.pop("auth_device_id", None)
+        session.pop("auth_username", None)
+        return None, (jsonify({"ok": False, "message": "حساب کاربری معتبر نیست."}), 401)
+    locked_device_id = (auth_user.get("locked_device_id") or "").strip()
+    if locked_device_id and locked_device_id != did:
+        return None, (jsonify({"ok": False, "message": "این حساب روی دستگاه دیگری قفل شده است."}), 403)
+    if auth_device_id and auth_device_id != did:
+        return None, (jsonify({"ok": False, "message": "ورود شما فقط روی دستگاه ثبت‌شده معتبر است."}), 403)
     user = mdb["users"].find_one({"device_id": did})
     if not user:
         alias = did.replace("-", "")[:12] or uuid.uuid4().hex[:12]
@@ -585,12 +600,34 @@ def messages_page():
 
 @app.get("/login")
 def login_page():
-    return redirect(url_for("home"))
+    next_url = (request.args.get("next") or "/").strip() or "/"
+    return render_template("login.html", next_url=next_url)
 
 
 @app.post("/api/auth/login")
 def api_auth_login():
-    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip().lower()
+    password = str(payload.get("password") or "").strip()
+    device_id = str(payload.get("device_id") or "").strip()
+    if not username or not password or not device_id:
+        return jsonify({"ok": False, "message": "نام کاربری، رمز عبور و شناسه دستگاه لازم است."}), 400
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB unavailable"}), 503
+    user = mdb["auth_users"].find_one({"username": username}, {"_id": 0})
+    if not user or str(user.get("password") or "") != password:
+        return jsonify({"ok": False, "message": "نام کاربری یا رمز عبور اشتباه است."}), 401
+    locked_device_id = (user.get("locked_device_id") or "").strip()
+    if locked_device_id and locked_device_id != device_id:
+        return jsonify({"ok": False, "message": "این حساب قبلاً روی یک دستگاه دیگر ثبت شده و تا زمان ریست ادمین قابل ورود نیست."}), 403
+    if not locked_device_id:
+        mdb["auth_users"].update_one({"id": user["id"]}, {"$set": {"locked_device_id": device_id, "updated_at": now_iso()}})
+    session["auth_user_id"] = user["id"]
+    session["auth_device_id"] = device_id
+    session["auth_username"] = username
+    register_visit(device_id)
+    return jsonify({"ok": True, "message": "ورود انجام شد."})
 
 
 @app.post("/api/auth/create-code")
@@ -600,7 +637,7 @@ def api_auth_create_code():
 
 @app.get("/api/auth/status")
 def api_auth_status():
-    return jsonify({"ok": True, "logged_in": True, "mode": "device_id"})
+    return jsonify({"ok": True, "logged_in": bool(session.get("auth_user_id")), "mode": "username_password"})
 
 
 @app.get("/api/auth/my-code")
@@ -610,6 +647,9 @@ def api_auth_my_code():
 
 @app.post("/api/auth/logout")
 def api_auth_logout():
+    session.pop("auth_user_id", None)
+    session.pop("auth_device_id", None)
+    session.pop("auth_username", None)
     return jsonify({"ok": True})
 
 
@@ -1443,6 +1483,16 @@ def admin_reset_pending(rid):
             mdb["user_access"].delete_many({"user_id": req["user_id"], "category_id": cid})
     mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None, "granted_category_ids": [], "is_fake_receipt": False}})
     return jsonify({"ok": True})
+
+
+@app.post("/khnowledge-mx/api/auth/reset-device-locks")
+@admin_required
+def admin_reset_auth_device_locks():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["auth_users"].update_many({}, {"$set": {"locked_device_id": None, "updated_at": now_iso()}})
+    return jsonify({"ok": True, "message": "قفل دستگاه همه کاربرها ریست شد."})
 
 
 @app.post("/khnowledge-mx/api/reports/<int:rid>/reply")
