@@ -18,8 +18,7 @@ $testimonials = [
 
 function render($view, $vars = []) {
     extract($vars);
-    $viewFile = __DIR__ . '/views/' . $view . '.php';
-    include __DIR__ . '/views/partials/layout.php';
+    include __DIR__ . '/views/' . $view . '.php';
     exit;
 }
 

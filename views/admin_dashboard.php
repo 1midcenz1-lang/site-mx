@@ -1,3 +1,6 @@
-<?php $title='داشبورد ادمین'; $scripts=['/static/js/admin.js']; ?>
-<section class="topbar"><h1>پنل ادمین</h1><div class="topbar-actions"><a class="btn btn-ghost" href="/admin_logout">خروج</a></div></section>
-<section class="card"><h3>⏰ زمان فعلی سرور</h3><div class="server-clock-pill"><strong><?= htmlspecialchars($server_now) ?></strong><span><?= htmlspecialchars($server_day) ?></span></div></section>
+<?php $title='داشبورد ادمین'; $scripts=['/static/js/admin.js']; ob_start(); ?>
+<section class="topbar"><h1>پنل ادمین</h1><div class="topbar-actions"><button id="notif-toggle-btn" class="btn btn-ghost" type="button">نوتیف: خاموش</button><button id="download-all-backup-btn" class="btn" type="button">دانلود بکاپ دیتا (DB + Receipts)</button><a class="btn btn-ghost" href="/admin_logout">خروج</a></div></section>
+<section class="admin-sticky-nav card"><a href="#admin-testimonials">نظرات</a><a href="#reports-table">ریپورت‌ها</a><a href="#admin-purchases">خریدها</a><a href="#settings-form">تنظیمات</a><a href="#admin-stats">آمار</a></section>
+<section id="admin-stats" class="card"><h3>⏰ زمان فعلی سرور</h3><div class="server-clock-pill"><strong data-stat-key="server_now"><?= htmlspecialchars($server_now ?? '-') ?></strong><span data-stat-key="server_day"><?= htmlspecialchars($server_day ?? '-') ?></span></div></section>
+<section class="table-wrap scroll-box"><h2>لیست دسته‌بندی‌ها</h2><table><thead><tr><th>ID</th><th>عنوان</th><th>Slug</th><th>متن پرداخت</th></tr></thead><tbody><?php foreach(($categories ?? []) as $c): ?><tr><td><?= (int)$c['id'] ?></td><td><?= htmlspecialchars($c['title']) ?></td><td><?= htmlspecialchars($c['slug']) ?></td><td><?= htmlspecialchars($c['payment_text']) ?></td></tr><?php endforeach; ?></tbody></table></section>
+<?php $content=ob_get_clean(); include __DIR__.'/partials/header.php'; echo $content; include __DIR__.'/partials/footer.php'; ?>
