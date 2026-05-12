@@ -1525,18 +1525,7 @@ def admin_fake_request(rid):
 @app.post("/khnowledge-mx/api/requests/<int:rid>/reset-pending")
 @admin_required
 def admin_reset_pending(rid):
-    mdb = mongo_db()
-    if mdb is None:
-        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    req = mdb["purchase_requests"].find_one({"id": rid})
-    if req and req.get("user_id"):
-        granted_ids = [int(x) for x in (req.get("granted_category_ids") or []) if str(x).isdigit()]
-        if not granted_ids and req.get("requested_category_id"):
-            granted_ids = [int(req["requested_category_id"])]
-        for cid in granted_ids:
-            mdb["user_access"].delete_many({"user_id": req["user_id"], "category_id": cid})
-    mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None, "granted_category_ids": [], "is_fake_receipt": False}})
-    return jsonify({"ok": True})
+    return jsonify({"ok": False, "message": "برگشت به pending غیرفعال شده است."}), 410
 
 
 @app.post("/khnowledge-mx/api/auth/reset-device-locks")
