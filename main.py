@@ -1850,11 +1850,50 @@ def admin_live_feed():
     cat_by_id = {c["id"]: c for c in categories}
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
     requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, None)
+    auth_users_all = list(mdb["auth_users"].find({}, {"_id": 0, "id": 1, "username": 1, "password": 1}))
+    auth_user_by_id = {x.get("id"): x for x in auth_users_all if x.get("id") is not None}
+    auth_user_by_username = {str(x.get("username") or "").strip().lower(): x for x in auth_users_all if str(x.get("username") or "").strip()}
+    creds_by_device = {}
+    for d in mdb["auth_user_devices"].find({}, {"_id": 0, "device_id": 1, "auth_user_id": 1, "username": 1, "last_seen_at": 1}):
+        did = d.get("device_id")
+        if not did:
+            continue
+        au = auth_user_by_id.get(d.get("auth_user_id"))
+        if not au and d.get("username"):
+            au = auth_user_by_username.get(str(d.get("username")).strip().lower())
+        if not au:
+            continue
+        prev = creds_by_device.get(did)
+        if not prev or str(d.get("last_seen_at") or "") > str(prev.get("last_seen_at") or ""):
+            creds_by_device[did] = {
+                "username": au.get("username") or "نامشخص",
+                "password": au.get("password") or "نامشخص",
+                "last_seen_at": d.get("last_seen_at"),
+            }
     reports = build_admin_reports(mdb, cat_by_id, 120)
+    creds_by_user_id = {}
+    for r in requests_rows:
+        c = creds_by_device.get(r.get("device_id"))
+        if not c:
+            uid = r.get("user_id")
+            c = creds_by_user_id.get(uid) if uid is not None else None
+        if not c:
+            c = {"username": "نامشخص", "password": "نامشخص"}
+        r["auth_username"] = c.get("username") or "نامشخص"
+        r["auth_password"] = c.get("password") or "نامشخص"
+        uid = r.get("user_id")
+        if uid is not None and r["auth_username"] != "نامشخص":
+            creds_by_user_id[uid] = {"username": r["auth_username"], "password": r["auth_password"]}
     report_rows = []
     for rp in reports:
         messages = rp.get("messages") or []
         last_msg = messages[-1] if messages else {}
+        c = creds_by_device.get(rp.get("device_id"))
+        if not c:
+            uid = rp.get("user_id")
+            c = creds_by_user_id.get(uid) if uid is not None else None
+        if not c:
+            c = {"username": "نامشخص", "password": "نامشخص"}
         report_rows.append({
             "id": rp.get("id"),
             "reporter_name": rp.get("reporter_name") or f"کاربر {rp.get('user_id') or '-'}",
@@ -1867,6 +1906,8 @@ def admin_live_feed():
             "last_text": last_msg.get("text") or "-",
             "last_at_clock": format_clock(last_msg.get("at")),
             "last_at_day": format_day(last_msg.get("at")),
+            "auth_username": c.get("username") or "نامشخص",
+            "auth_password": c.get("password") or "نامشخص",
         })
     return jsonify({"ok": True, "purchases": requests_rows, "reports": report_rows})
 
