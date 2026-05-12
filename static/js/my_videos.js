@@ -1,35 +1,43 @@
 ﻿(function () {
-  function generateUUID() {
-    // اگر crypto موجود بود استفاده کن
-    if (window.crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // fallback ساده (UUID v4-like)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
   const approvedText = document.getElementById("approved-text");
   const listBox = document.getElementById("video-list");
   if (!approvedText || !listBox) return;
 
   const deviceId = (window.MX && window.MX.ensureDeviceId())
     || localStorage.getItem("mx_device_id")
-    || generateUUID();
-  localStorage.setItem("mx_device_id", deviceId);
+    || "";
+  if (!deviceId) {
+    approvedText.classList.add("error");
+    approvedText.textContent = "شناسه دستگاه پیدا نشد. صفحه را دوباره باز کنید.";
+    return;
+  }
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
+  function renderZipTutorialsInline(container) {
+    if (!container) return;
+    const wrap = document.createElement("div");
+    wrap.className = "tutorial-grid";
+    wrap.innerHTML = `
+      <article class="card tutorial-card">
+        <h3>آموزش باز کردن ZIP در iPhone</h3>
+        <video class="video-box" controls preload="metadata" playsinline src="http://185.8.172.161:5000/iphone_c717c794"></video>
+      </article>
+      <article class="card tutorial-card">
+        <h3>آموزش باز کردن ZIP در Android</h3>
+        <video class="video-box" controls preload="metadata" playsinline src="http://185.8.172.161:5000/android_c6c603ef"></video>
+      </article>
+    `;
+    container.appendChild(wrap);
+  }
 
   function showNotificationGuidePopup() {
     if (!("Notification" in window)) return;
     const guideKey = `mx_notif_guide_shown_${new Date().toISOString().slice(0, 10)}`;
     if (localStorage.getItem(guideKey) === "1") return;
     if (Notification.permission === "granted") {
-      alert("پس از تایید ادمین از طریق نوتیف به شما اطلاع داده میشود.");
+      (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)("پس از تایید ادمین از طریق نوتیف به شما اطلاع داده میشود.");
     } else {
-      alert("لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
+      (window.MX && window.MX.showPopup ? window.MX.showPopup : window.alert)("لطفا درخواست نوتیف را تایید کنید تا بعد از تایید ادمین به شما اطلاع داده شود.");
       if (Notification.permission === "default") {
         Notification.requestPermission().catch(() => {});
       }
@@ -37,11 +45,50 @@
     localStorage.setItem(guideKey, "1");
   }
 
-  async function loadVideos() {
-    listBox.innerHTML = "";
-    approvedText.classList.remove("error");
-    approvedText.textContent = "در حال بررسی...";
+  function showZipHelpModal() {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>راهنمای باز کردن ZIP</h3>
+        <p>دانلود انجام شد ✅ لطفا ویدیوهای آموزش باز کردن ZIP (iPhone/Android) را در همین صفحه ببینید.</p>
+        <button class="btn" type="button">باشه</button>
+      </div>
+    `;
+    const btn = backdrop.querySelector("button");
+    if (btn) btn.addEventListener("click", () => backdrop.remove());
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    });
+    document.body.appendChild(backdrop);
+  }
 
+  function showSurveyBoostPopup() {
+    const key = `mx_survey_boost_${deviceId}`;
+    if (localStorage.getItem(key) === "1") return;
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>🎁 دسترسی طولانی‌تر</h3>
+        <p>با ثبت نظر، شانس تمدید بیشتر دسترسی فایل‌ها را دارید.</p>
+        <button class="btn" id="go-survey-btn" type="button">بریم نظر بدیم</button>
+      </div>
+    `;
+    backdrop.querySelector("#go-survey-btn")?.addEventListener("click", () => {
+      localStorage.setItem(key, "1");
+      window.location.href = "/?open_survey=1";
+    });
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) {
+        localStorage.setItem(key, "1");
+        backdrop.remove();
+      }
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  async function loadVideos() {
     const url = `/api/my-videos?device_id=${encodeURIComponent(deviceId)}`;
 
     try {
@@ -58,13 +105,22 @@
       showNotificationGuidePopup();
 
       if (!data.categories.length) {
+        listBox.innerHTML = "";
         listBox.innerHTML = "<div class='card'>هنوز دسترسی فعالی برای این دستگاه ثبت نشده است.</div>";
         return;
       }
-
+      showSurveyBoostPopup();
+      const openIds = new Set(
+        Array.from(listBox.querySelectorAll("details[data-cat-id]"))
+          .filter((d) => d.open)
+          .map((d) => String(d.dataset.catId)),
+      );
+      const nextHtml = [];
       data.categories.forEach((cat) => {
         const wrapper = document.createElement("details");
         wrapper.className = "accordion-item";
+        wrapper.dataset.catId = String(cat.id);
+        wrapper.open = openIds.has(String(cat.id));
         const summary = document.createElement("summary");
         summary.textContent = `دسته ${cat.title}`;
         wrapper.appendChild(summary);
@@ -90,14 +146,25 @@
               approvedText.textContent = "در iPhone لینک دانلود با مرورگر پیش‌فرض (Safari/Chrome) باز می‌شود.";
             });
           }
+          link.addEventListener("click", () => {
+            setTimeout(() => {
+              showZipHelpModal();
+            }, 1100);
+          });
           card.appendChild(link);
+          const info = document.createElement("div");
+          info.className = "tiny-text";
+          info.textContent = `حجم: ${v.file_size || "-"}${v.file_count ? ` | تعداد فایل داخل ZIP: ${v.file_count}` : ""}`;
+          card.appendChild(info);
           card.appendChild(document.createElement("br"));
           card.appendChild(document.createElement("br"));
         });
+        renderZipTutorialsInline(card);
 
         wrapper.appendChild(card);
-        listBox.appendChild(wrapper);
+        nextHtml.push(wrapper.outerHTML);
       });
+      listBox.innerHTML = nextHtml.join("");
 
       fetch("/api/my-videos/mark-seen", {
         method: "POST",

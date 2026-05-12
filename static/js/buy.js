@@ -6,19 +6,6 @@
   const pendingNote = document.getElementById("pending-note");
   const deviceInput = document.getElementById("device_id");
   const submitBtn = form.querySelector("button[type='submit']");
-  function generateUUID() {
-    // اگر crypto موجود بود استفاده کن
-    if (window.crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // fallback ساده (UUID v4-like)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
   function lockForm(withError) {
     form.classList.add("hidden");
     if (submitBtn) {
@@ -32,9 +19,38 @@
 
   const deviceId = (window.MX && window.MX.ensureDeviceId())
     || localStorage.getItem("mx_device_id")
-    || generateUUID();
-  localStorage.setItem("mx_device_id", deviceId);
+    || "";
+  if (!deviceId) {
+    output.classList.add("error");
+    output.textContent = "شناسه دستگاه پیدا نشد. صفحه را دوباره باز کنید.";
+    return;
+  }
   deviceInput.value = deviceId;
+  let isLoggedIn = false;
+
+  function setBuyEnabled(enabled) {
+    form.style.opacity = enabled ? "1" : "0.6";
+    form.style.pointerEvents = enabled ? "auto" : "none";
+  }
+
+  async function refreshAuthStatus() {
+    try {
+      const res = await fetch(`/api/auth/status?device_id=${encodeURIComponent(deviceId)}`);
+      const data = await res.json();
+      isLoggedIn = Boolean(res.ok && data.ok && data.logged_in);
+      if (!isLoggedIn) {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?next=${next}`;
+        return;
+      } else {
+        output.classList.remove("error");
+        output.textContent = `وارد شده‌اید | کد: ${data.access_code || "-"}`;
+      }
+      setBuyEnabled(isLoggedIn);
+    } catch (_err) {
+      setBuyEnabled(false);
+    }
+  }
 
   async function recoverFromPendingState() {
     try {
@@ -61,6 +77,11 @@
     e.preventDefault();
     output.classList.remove("error");
     output.textContent = "در حال ارسال فیش...";
+    if (!isLoggedIn) {
+      output.classList.add("error");
+      output.textContent = "ابتدا وارد حساب شوید.";
+      return;
+    }
     if (pendingNote) pendingNote.classList.add("hidden");
     if (submitBtn) {
       submitBtn.disabled = true;
@@ -80,6 +101,14 @@
       clearTimeout(timer);
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        if (res.status === 403 && data && data.message) {
+          if (window.MX && window.MX.showPopup) window.MX.showPopup(data.message, "error");
+        }
+        if (data && data.login_required) {
+          const next = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = `/login?next=${next}`;
+          return;
+        }
         output.classList.add("error");
         output.textContent = data.message || "خطا در ثبت درخواست";
         if (data.pending_exists) {
@@ -115,5 +144,8 @@
     }
   });
 
-  recoverFromPendingState();
+  setBuyEnabled(false);
+  refreshAuthStatus().then(() => {
+    if (isLoggedIn) recoverFromPendingState();
+  });
 })();

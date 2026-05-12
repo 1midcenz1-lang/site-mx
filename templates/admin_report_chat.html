@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}تیکت #{{ report.id }}{% endblock %}
+{% block content %}
+<section class="topbar">
+  <h1>تیکت #{{ report.id }}</h1>
+  <div class="topbar-actions">
+    <a class="btn btn-ghost" href="/admin">بازگشت به داشبورد</a>
+  </div>
+</section>
+<section class="card">
+  <p><strong>کاربر:</strong> {{ report.reporter_name or ('کاربر ' ~ (report.user_id or '-')) }}</p>
+  <p><strong>شناسه دستگاه:</strong> <span class="device-id">{{ report.device_id }}</span></p>
+  <p><strong>موضوع:</strong> {{ report.report_type }}</p>
+  <p><strong>اشتراک‌ها:</strong> <span class="tiny-text">{{ report.category_titles }}</span></p>
+  <p><strong>ثبت:</strong> {{ report.created_at_clock }} <span class="tiny-text">{{ report.created_at_day }}</span></p>
+</section>
+<section class="form-card">
+  <h3>گفت‌وگو</h3>
+    <div class="ticket-thread">
+    {% for m in report.messages %}
+    <div class="ticket-msg {% if m.sender == 'admin' %}ticket-admin{% else %}ticket-user{% endif %}">
+      <strong>{% if m.sender == 'admin' %}ادمین{% else %}کاربر{% endif %}</strong>: {{ m.text }} <span class="tiny-text">{% if m.sender == 'admin' %}✓{% else %}✓✓{% endif %}</span>
+      {% if m.sender == 'admin' %}
+      <button class="btn small btn-danger delete-admin-msg-btn" type="button" data-report-id="{{ report.id }}" data-msg-id="{{ m.id }}">⋯ حذف</button>
+      {% endif %}
+      <div class="tiny-text">{{ m.at_clock }}<br>{{ m.at_day }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <form class="reply-form" data-report-id="{{ report.id }}" style="margin-top:12px;">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+      <button id="admin-ready-toggle" class="btn small btn-ghost" type="button">+</button>
+      <select id="admin-ready-select" class="hidden">
+        <option value="">متن آماده...</option>
+        {% for rm in ready_messages %}
+        <option value="{{ rm.text }}">{{ rm.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <textarea name="reply_text" rows="3" placeholder="پاسخ ادمین..." required></textarea>
+    <button class="btn" type="submit">ثبت پاسخ</button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/admin.js"></script>
+{% endblock %}

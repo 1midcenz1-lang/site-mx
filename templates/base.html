@@ -22,17 +22,18 @@
     {% if not request.path.startswith('/admin') %}
 
     <button id="report-toggle" class="report-fab" type="button" aria-label="ریپورت"><span>🚩</span><span>ریپورت</span></button>
+    <button id="support-toggle" class="support-fab" type="button" aria-label="پشتیبانی"><span>🛟</span><span>پشتیبانی</span></button>
     <button id="survey-toggle" class="survey-fab" type="button" aria-label="نظر"><span>💬</span><span>ثبت نظر</span></button>
-    <button id="admin-messages-toggle" class="messages-fab" type="button" aria-label="پیام ادمین"><span>🔔</span></button>
+    <button id="admin-messages-toggle" class="messages-fab" type="button" aria-label="پیام ادمین"><span>🔔</span><span id="admin-messages-count" class="fab-count hidden">0</span></button>
     <section id="report-panel" class="form-card report-box hidden">
       <h3>ریپورت محتوا</h3>
       <form id="report-form">
         <input type="hidden" name="device_id" id="report_device_id" />
         <label>دسته‌بندی ریپورت</label>
         <select name="report_type" required>
+          <option value="پشتیبانی">پشتیبانی</option>
           <option value="مستحجن">مستحجن</option>
           <option value="کلاهبرداری">کلاهبرداری</option>
-          <option value="پشتیبانی">پشتیبانی</option>
         </select>
         <label>توضیحات</label>
         <textarea name="report_text" rows="3" required></textarea>
