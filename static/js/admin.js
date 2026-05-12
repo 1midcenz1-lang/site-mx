@@ -120,6 +120,10 @@
     </form>`;
   }
 
+  function renderResetAction(rid) {
+    return `<button class="btn small reset-pending-btn" type="button" data-request-id="${rid}">برگشت به pending</button>`;
+  }
+
   function highlightUserPurchases(userId) {
     if (!purchaseRowsBody) return false;
     const rows = Array.from(purchaseRowsBody.querySelectorAll("tr"));
@@ -166,6 +170,28 @@
   document.addEventListener("click", async (evt) => {
     const target = evt.target;
     if (!(target instanceof Element)) return;
+    const resetBtn = target.closest(".reset-pending-btn");
+    if (resetBtn) {
+      const rid = resetBtn.dataset.requestId;
+      const res = await fetch(`/khnowledge-mx/api/requests/${rid}/reset-pending`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در بازگشت به pending");
+      showPopup("وضعیت به pending برگشت.");
+      const row = resetBtn.closest("tr");
+      if (row) {
+        const cells = row.querySelectorAll("td");
+        if (cells[7]) {
+          cells[7].setAttribute("data-raw-status", "در انتظار بررسی");
+          cells[7].innerHTML = statusBadge("در انتظار بررسی");
+        }
+        if (cells[9]) cells[9].textContent = "-";
+        if (cells[10]) cells[10].innerHTML = renderPendingActions(rid, "");
+        row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
+      }
+      await refreshLiveStats();
+      await refreshLiveFeed();
+      return;
+    }
     const rejectBtn = target.closest(".reject-btn");
     if (rejectBtn) {
       const rid = rejectBtn.dataset.requestId;
@@ -187,7 +213,7 @@
           cells[7].innerHTML = statusBadge("تایید نشده");
         }
         if (cells[9]) cells[9].textContent = reason || "-";
-        if (cells[10]) cells[10].innerHTML = '<span class="tiny-text">-</span>';
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
       refreshLiveFeed();
@@ -213,7 +239,7 @@
           cells[7].innerHTML = statusBadge("تایید نشده | فیک");
         }
         if (cells[9]) cells[9].textContent = reason || "-";
-        if (cells[10]) cells[10].innerHTML = '<span class="tiny-text">-</span>';
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
       refreshLiveFeed();
@@ -589,7 +615,7 @@
           cells[7].innerHTML = statusBadge("تایید شده");
         }
         if (cells[9]) cells[9].textContent = "-";
-        if (cells[10]) cells[10].innerHTML = '<span class="tiny-text">-</span>';
+        if (cells[10]) cells[10].innerHTML = renderResetAction(rid);
       }
       refreshLiveStats();
     });
@@ -705,7 +731,7 @@
             <td class="status-cell" data-raw-status="${escapeHtml(r.status_label)}">${statusBadge(r.status_label)}</td>
             <td>${escapeHtml(r.user_note || "-")}</td>
             <td>${escapeHtml(r.admin_note || "-")}</td>
-            <td>${r.status === "pending" ? renderPendingActions(r.id, r.requested_category) : '<span class="tiny-text">-</span>'}</td>
+            <td>${r.status === "pending" ? renderPendingActions(r.id, r.requested_category) : renderResetAction(r.id)}</td>
           </tr>
         `).join("");
         purchaseRowsBody.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
