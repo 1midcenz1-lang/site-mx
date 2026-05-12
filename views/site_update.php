@@ -1,0 +1,43 @@
+<?php $title='MX Video'; ob_start(); ?>
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>بروزرسانی سایت</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <main class="container">
+    <section class="status-page status-page-update">
+      <div class="status-badge">درحال بروزرسانی</div>
+      <h1>سایت درحال بروز رسانی هست</h1>
+      <p>
+        لطفاً چند دقیقه بعد دوباره تلاش کنید. در حال آماده‌سازی نسخه جدید سایت هستیم تا تجربه بهتری داشته باشید.
+      </p>
+      <div class="status-loader" aria-hidden="true"></div>
+      <p class="muted">لطفا چند دقیقه دیکه مجدد دامنه زیر را باز کنید</p>
+      <a class="btn status-link-btn" href="<?= htmlspecialchars($fallback_url ?? '') ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($fallback_url ?? '') ?></a>
+
+    </section>
+  </main>
+  <script>
+    (function () {
+      async function checkStatus() {
+        try {
+          const res = await fetch("/api/system-status");
+          const data = await res.json();
+          if (res.ok && data.ok && !data.site_update_mode) {
+            window.location.replace("/");
+          }
+        } catch (_err) {
+          // silent
+        }
+      }
+      checkStatus();
+      setInterval(checkStatus, 5000);
+    })();
+  </script>
+</body>
+</html>
+<?php $content=ob_get_clean(); include __DIR__.'/partials/header.php'; echo $content; include __DIR__.'/partials/footer.php'; ?>
