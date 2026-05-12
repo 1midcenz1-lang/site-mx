@@ -484,6 +484,31 @@ def bind_device(access_code: str, device_id: str):
     return True, ""
 
 
+def bind_auth_user_device(auth_user: dict, device_id: str):
+    mdb = mongo_db()
+    if mdb is None:
+        return False, "MongoDB unavailable"
+    max_devices = setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)
+    coll = mdb["auth_user_devices"]
+    uid = auth_user.get("id")
+    q = {"auth_user_id": uid} if uid is not None else {"username": auth_user.get("username")}
+    row = coll.find_one({**q, "device_id": device_id})
+    if row:
+        coll.update_one({"_id": row["_id"]}, {"$set": {"last_seen_at": now_iso()}})
+        return True, ""
+    if coll.count_documents(q) >= max_devices:
+        return False, f"حداکثر تعداد دستگاه برای این حساب ({max_devices}) پر شده است."
+    coll.insert_one({
+        "id": mongo_next_id("auth_user_devices"),
+        "auth_user_id": uid,
+        "username": auth_user.get("username"),
+        "device_id": device_id,
+        "first_seen_at": now_iso(),
+        "last_seen_at": now_iso(),
+    })
+    return True, ""
+
+
 def require_auth():
     did = get_device_id_from_request()
     if not did:
@@ -495,15 +520,17 @@ def require_auth():
     auth_device_id = (session.get("auth_device_id") or "").strip()
     if not auth_user_id:
         return None, (jsonify({"ok": False, "message": "ابتدا وارد حساب شوید."}), 401)
-    auth_user = mdb["auth_users"].find_one({"id": auth_user_id}, {"_id": 0, "locked_device_id": 1})
+    auth_user = mdb["auth_users"].find_one({"id": auth_user_id}, {"_id": 0, "id": 1, "username": 1})
     if not auth_user:
         session.pop("auth_user_id", None)
         session.pop("auth_device_id", None)
         session.pop("auth_username", None)
         return None, (jsonify({"ok": False, "message": "حساب کاربری معتبر نیست."}), 401)
-    locked_device_id = (auth_user.get("locked_device_id") or "").strip()
-    if locked_device_id and locked_device_id != did:
-        return None, (jsonify({"ok": False, "message": "این حساب روی دستگاه دیگری قفل شده است."}), 403)
+    bound = mdb["auth_user_devices"].find_one({"auth_user_id": auth_user_id, "device_id": did}, {"_id": 0, "id": 1})
+    if not bound and auth_user.get("username"):
+        bound = mdb["auth_user_devices"].find_one({"username": auth_user.get("username"), "device_id": did}, {"_id": 0, "id": 1})
+    if not bound:
+        return None, (jsonify({"ok": False, "message": "این دستگاه برای حساب شما ثبت نشده است."}), 403)
     if auth_device_id and auth_device_id != did:
         return None, (jsonify({"ok": False, "message": "ورود شما فقط روی دستگاه ثبت‌شده معتبر است."}), 403)
     user = mdb["users"].find_one({"device_id": did})
@@ -618,16 +645,41 @@ def api_auth_login():
     user = mdb["auth_users"].find_one({"username": username}, {"_id": 0})
     if not user or str(user.get("password") or "") != password:
         return jsonify({"ok": False, "message": "نام کاربری یا رمز عبور اشتباه است."}), 401
-    locked_device_id = (user.get("locked_device_id") or "").strip()
-    if locked_device_id and locked_device_id != device_id:
-        return jsonify({"ok": False, "message": "این حساب قبلاً روی یک دستگاه دیگر ثبت شده و تا زمان ریست ادمین قابل ورود نیست."}), 403
-    if not locked_device_id:
-        mdb["auth_users"].update_one({"id": user["id"]}, {"$set": {"locked_device_id": device_id, "updated_at": now_iso()}})
+    ok_bind, err_bind = bind_auth_user_device(user, device_id)
+    if not ok_bind:
+        return jsonify({"ok": False, "message": err_bind}), 403
     session["auth_user_id"] = user["id"]
     session["auth_device_id"] = device_id
     session["auth_username"] = username
     register_visit(device_id)
     return jsonify({"ok": True, "message": "ورود انجام شد."})
+
+
+@app.post("/api/auth/register")
+def api_auth_register():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip().lower()
+    password = str(payload.get("password") or "").strip()
+    device_id = str(payload.get("device_id") or "").strip()
+    if not username or not password or not device_id:
+        return jsonify({"ok": False, "message": "نام کاربری، رمز عبور و شناسه دستگاه لازم است."}), 400
+    if len(username) < 3 or len(password) < 4:
+        return jsonify({"ok": False, "message": "نام کاربری حداقل ۳ کاراکتر و رمز حداقل ۴ کاراکتر باشد."}), 400
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB unavailable"}), 503
+    if mdb["auth_users"].find_one({"username": username}, {"_id": 1}):
+        return jsonify({"ok": False, "message": "این نام کاربری قبلاً ثبت شده است."}), 409
+    user = {"id": mongo_next_id("auth_users"), "username": username, "password": password, "created_at": now_iso(), "updated_at": now_iso()}
+    mdb["auth_users"].insert_one(user)
+    ok_bind, err_bind = bind_auth_user_device(user, device_id)
+    if not ok_bind:
+        return jsonify({"ok": False, "message": err_bind}), 403
+    session["auth_user_id"] = user["id"]
+    session["auth_device_id"] = device_id
+    session["auth_username"] = username
+    register_visit(device_id)
+    return jsonify({"ok": True, "message": "ثبت نام و ورود انجام شد."})
 
 
 @app.post("/api/auth/create-code")
@@ -1106,10 +1158,10 @@ def admin_dashboard():
     visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(1500))
     visitor_device_ids = [v.get("device_id") for v in visitors if v.get("device_id")]
     code_by_device = {
-        x.get("device_id"): x.get("access_code")
+        x.get("device_id"): (x.get("username") or x.get("access_code"))
         for x in mdb["auth_user_devices"].find(
             {"device_id": {"$in": visitor_device_ids}},
-            {"_id": 0, "device_id": 1, "access_code": 1},
+            {"_id": 0, "device_id": 1, "access_code": 1, "username": 1},
         )
         if x.get("device_id")
     } if visitor_device_ids else {}
@@ -1134,17 +1186,16 @@ def admin_dashboard():
         v["purchase_status_label"] = "تایید شده" if has_active_access else "تایید نشده"
 
     auth_users_raw = list(mdb["auth_users"].find({}, {"_id": 0}).sort("id", -1).limit(300))
-    auth_codes = [a.get("access_code") for a in auth_users_raw if a.get("access_code")]
     auth_devices_by_code = {}
-    if auth_codes:
-        for d in mdb["auth_user_devices"].find({"access_code": {"$in": auth_codes}}, {"_id": 0, "access_code": 1, "last_seen_at": 1}):
-            code = d.get("access_code")
-            if not code:
-                continue
-            auth_devices_by_code.setdefault(code, []).append(d)
+    for d in mdb["auth_user_devices"].find({}, {"_id": 0, "access_code": 1, "username": 1, "auth_user_id": 1, "last_seen_at": 1}):
+        key = str(d.get("auth_user_id") or d.get("username") or d.get("access_code") or "")
+        if not key:
+            continue
+        auth_devices_by_code.setdefault(key, []).append(d)
     auth_users = []
     for au in auth_users_raw:
-        devs = auth_devices_by_code.get(au.get("access_code"), [])
+        key = str(au.get("id") or au.get("username") or au.get("access_code") or "")
+        devs = auth_devices_by_code.get(key, [])
         auth_users.append({**au, "device_count": len(devs), "last_device_seen": max([d.get("last_seen_at", "") for d in devs], default=None)})
 
     online_by_page = {}
@@ -1491,7 +1542,8 @@ def admin_reset_auth_device_locks():
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
-    mdb["auth_users"].update_many({}, {"$set": {"locked_device_id": None, "updated_at": now_iso()}})
+    mdb["auth_user_devices"].delete_many({})
+    mdb["auth_users"].update_many({}, {"$set": {"updated_at": now_iso()}})
     return jsonify({"ok": True, "message": "قفل دستگاه همه کاربرها ریست شد."})
 
 

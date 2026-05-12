@@ -2,7 +2,10 @@
   const form = document.getElementById("login-form");
   const resultBox = document.getElementById("login-result");
   const nextInput = document.getElementById("next_url");
+  const registerBtn = document.getElementById("register-btn");
+  const loginBtn = document.getElementById("login-btn");
   if (!form || !resultBox) return;
+  let mode = "login";
 
   function getDeviceId() {
     return (window.MX && window.MX.ensureDeviceId && window.MX.ensureDeviceId()) || localStorage.getItem("mx_device_id") || "";
@@ -30,7 +33,8 @@
     resultBox.classList.remove("error");
     resultBox.textContent = "در حال ورود...";
     try {
-      const res = await fetch("/api/auth/login", {
+      const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password, device_id: deviceId }),
@@ -47,4 +51,16 @@
       resultBox.textContent = "خطای ارتباط با سرور";
     }
   });
+
+  if (registerBtn) {
+    registerBtn.addEventListener("click", () => {
+      mode = "register";
+      form.requestSubmit();
+    });
+  }
+  if (loginBtn) {
+    loginBtn.addEventListener("click", () => {
+      mode = "login";
+    });
+  }
 })();
