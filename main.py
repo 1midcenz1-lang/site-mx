@@ -1160,6 +1160,29 @@ def admin_dashboard():
             vf = {"device_id": {"$regex": q, "$options": "i"}}
     visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(1500))
     visitor_device_ids = [v.get("device_id") for v in visitors if v.get("device_id")]
+    auth_users_all = list(mdb["auth_users"].find({}, {"_id": 0, "id": 1, "username": 1, "password": 1}))
+    auth_user_by_id = {x.get("id"): x for x in auth_users_all if x.get("id") is not None}
+    auth_user_by_username = {str(x.get("username") or "").strip().lower(): x for x in auth_users_all if str(x.get("username") or "").strip()}
+    creds_by_device = {}
+    for d in mdb["auth_user_devices"].find(
+        {"device_id": {"$in": visitor_device_ids}} if visitor_device_ids else {},
+        {"_id": 0, "device_id": 1, "auth_user_id": 1, "username": 1, "last_seen_at": 1},
+    ):
+        did = d.get("device_id")
+        if not did:
+            continue
+        au = auth_user_by_id.get(d.get("auth_user_id"))
+        if not au and d.get("username"):
+            au = auth_user_by_username.get(str(d.get("username")).strip().lower())
+        if not au:
+            continue
+        prev = creds_by_device.get(did)
+        if not prev or str(d.get("last_seen_at") or "") > str(prev.get("last_seen_at") or ""):
+            creds_by_device[did] = {
+                "username": au.get("username") or "-",
+                "password": au.get("password") or "-",
+                "last_seen_at": d.get("last_seen_at"),
+            }
     code_by_device = {
         x.get("device_id"): (x.get("username") or x.get("access_code"))
         for x in mdb["auth_user_devices"].find(
@@ -1184,6 +1207,9 @@ def admin_dashboard():
     for v in visitors:
         if code_by_device.get(v.get("device_id")):
             v["username"] = code_by_device.get(v.get("device_id"))
+        if creds_by_device.get(v.get("device_id")):
+            v["auth_username"] = creds_by_device[v.get("device_id")]["username"]
+            v["auth_password"] = creds_by_device[v.get("device_id")]["password"]
         user = user_by_device.get(v.get("device_id"))
         has_active_access = bool(user and user.get("id") in active_user_ids)
         v["purchase_status_label"] = "تایید شده" if has_active_access else "تایید نشده"
@@ -1261,7 +1287,22 @@ def admin_dashboard():
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
             "report_count": report_count,
+            "auth_username": v.get("auth_username") or "-",
+            "auth_password": v.get("auth_password") or "-",
         })
+    creds_by_user_id = {}
+    for a in activity_rows:
+        uid = a.get("user_id")
+        if uid is not None and a.get("auth_username") and a.get("auth_username") != "-":
+            creds_by_user_id[uid] = {"auth_username": a.get("auth_username"), "auth_password": a.get("auth_password")}
+    for r in requests_rows:
+        c = creds_by_device.get(r.get("device_id")) or creds_by_user_id.get(r.get("user_id"))
+        r["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "-"
+        r["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "-"
+    for rp in reports:
+        c = creds_by_device.get(rp.get("device_id")) or creds_by_user_id.get(rp.get("user_id"))
+        rp["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "-"
+        rp["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "-"
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
         "total_visitors": mdb["visitors"].count_documents({}),

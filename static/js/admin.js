@@ -721,7 +721,7 @@
         if (isEditingPurchase) return;
         purchaseRowsBody.innerHTML = data.purchases.map((r) => `
           <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}" data-user-id="${escapeHtml(r.user_id)}">
-            <td>کاربر ${r.user_id || "-"}</td>
+            <td>کاربر ${r.user_id || "-"}<div class="tiny-text">یوزر: ${escapeHtml(r.auth_username || "-")} | پسورد: ${escapeHtml(r.auth_password || "-")}</div></td>
             <td class="device-id">${escapeHtml(r.device_id)}</td>
             <td>${escapeHtml(r.requested_category)}</td>
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
@@ -740,7 +740,7 @@
       if (reportRowsBody && Array.isArray(data.reports)) {
         reportRowsBody.innerHTML = data.reports.map((rp) => `
           <tr>
-            <td>${escapeHtml(rp.reporter_name)}</td>
+            <td>${escapeHtml(rp.reporter_name)}<div class="tiny-text">یوزر: ${escapeHtml(rp.auth_username || "-")} | پسورد: ${escapeHtml(rp.auth_password || "-")}</div></td>
             <td class="device-id">${escapeHtml(rp.device_id)}</td>
             <td>${escapeHtml(rp.report_type)}</td>
             <td><div class="tiny-text">${escapeHtml(rp.last_sender)}: ${escapeHtml(rp.last_text)}</div><div class="tiny-text">${escapeHtml(rp.last_at_clock)}<br>${escapeHtml(rp.last_at_day)}</div></td>
