@@ -218,6 +218,17 @@
     const deviceId = onboard.deviceId;
 
     window.MX = window.MX || {};
+    const logoutBtn = document.getElementById("user-logout-btn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+        } catch (_err) {
+          // silent
+        }
+        window.location.href = "/login";
+      });
+    }
     window.MX.deviceId = deviceId;
     window.MX.ensureDeviceId = () => deviceId;
 

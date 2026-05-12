@@ -1210,6 +1210,9 @@ def admin_dashboard():
         if creds_by_device.get(v.get("device_id")):
             v["auth_username"] = creds_by_device[v.get("device_id")]["username"]
             v["auth_password"] = creds_by_device[v.get("device_id")]["password"]
+        elif v.get("username"):
+            v["auth_username"] = v.get("username")
+            v["auth_password"] = "نامشخص"
         user = user_by_device.get(v.get("device_id"))
         has_active_access = bool(user and user.get("id") in active_user_ids)
         v["purchase_status_label"] = "تایید شده" if has_active_access else "تایید نشده"
@@ -1287,8 +1290,8 @@ def admin_dashboard():
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
             "report_count": report_count,
-            "auth_username": v.get("auth_username") or "-",
-            "auth_password": v.get("auth_password") or "-",
+            "auth_username": v.get("auth_username") or "نامشخص",
+            "auth_password": v.get("auth_password") or "نامشخص",
         })
     creds_by_user_id = {}
     for a in activity_rows:
@@ -1297,12 +1300,12 @@ def admin_dashboard():
             creds_by_user_id[uid] = {"auth_username": a.get("auth_username"), "auth_password": a.get("auth_password")}
     for r in requests_rows:
         c = creds_by_device.get(r.get("device_id")) or creds_by_user_id.get(r.get("user_id"))
-        r["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "-"
-        r["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "-"
+        r["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "نامشخص"
+        r["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "نامشخص"
     for rp in reports:
         c = creds_by_device.get(rp.get("device_id")) or creds_by_user_id.get(rp.get("user_id"))
-        rp["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "-"
-        rp["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "-"
+        rp["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "نامشخص"
+        rp["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "نامشخص"
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
         "total_visitors": mdb["visitors"].count_documents({}),
