@@ -2,6 +2,9 @@
 session_start();
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
+if ($path === '/index.php') {
+    $path = '/';
+}
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 $categories = [
