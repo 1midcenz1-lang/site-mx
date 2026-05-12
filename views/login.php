@@ -1,0 +1,3 @@
+<?php $title='ورود کاربر'; $scripts=['/static/js/login.js']; ?>
+<section class="hero hero-glass"><h1>ورود به حساب</h1><p>اگر قبلاً خرید کردید، کد ۱۶ کاراکتری خود را وارد کنید.</p></section>
+<section class="form-card"><form id="login-form"><input type="hidden" id="next_url" value="<?= htmlspecialchars($next_url ?? '/') ?>" /><label>کد دسترسی ۱۶ کاراکتری</label><input id="login-code" required minlength="16" maxlength="16" /><button class="btn" type="submit">ورود با کد</button></form><hr><button id="first-buy-btn" class="btn btn-danger" type="button">اگر اولین خریدتونه کلیک کنید (ساخت کد جدید)</button><div id="login-result" class="result-box"></div></section>

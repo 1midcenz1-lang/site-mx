@@ -1,0 +1,4 @@
+<?php $title='خانه'; ?>
+<section class="purchase-counter"><div class="counter-glow"><p>🔥 تعداد اشتراک‌های فعال</p><strong id="total-purchase-counter">45</strong></div></section>
+<section id="survey" class="table-wrap"><h2>دسته‌بندی‌های قابل مشاهده</h2><?php if (!empty($categories)): ?><div class="cards"><?php foreach($categories as $c): ?><article class="card category-card" data-category-id="<?= $c['id'] ?>" data-category-slug="<?= htmlspecialchars($c['slug']) ?>"><div class="category-head"><button class="like-btn" type="button" aria-label="لایک"><span class="like-icon">♡</span><span class="like-text">لایک</span><span class="like-count">0</span></button></div><h5><?= htmlspecialchars($c['title']) ?></h5><a class="btn-small" href="/buy/<?= urlencode($c['slug']) ?>">دریافت فایل</a></article><?php endforeach; ?></div><?php endif; ?></section>
+<?php $scripts=[]; ?>

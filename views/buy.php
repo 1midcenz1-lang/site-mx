@@ -1,0 +1,3 @@
+<?php $title='دریافت '.$category['title']; $scripts=['/static/js/buy.js']; ?>
+<section class="hero hero-glass"><h1>دریافت اشتراک <?= htmlspecialchars($category['title']) ?></h1><pre class="payment-text"><?= htmlspecialchars($category['payment_text']) ?></pre></section>
+<form id="buy-form" class="form-card" enctype="multipart/form-data"><input type="hidden" name="category_id" value="<?= (int)$category['id'] ?>" /><input type="hidden" name="device_id" id="device_id" /><label>عکس فیش</label><input type="file" name="receipt" accept="image/*" required /><button class="btn form-submit-btn" type="submit">ارسال فیش و ثبت درخواست</button></form><div id="form-result" class="result-box"></div>
