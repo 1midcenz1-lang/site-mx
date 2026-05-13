@@ -809,7 +809,7 @@
     refreshLiveStats();
     refreshLiveFeed();
     applyStatusBadges();
-    setInterval(refreshLiveStats, 5000);
-    setInterval(refreshLiveFeed, 5000);
+    setInterval(refreshLiveStats, 15000);
+    setInterval(refreshLiveFeed, 15000);
   }
 })();

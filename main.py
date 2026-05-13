@@ -993,13 +993,14 @@ def api_my_videos():
         for v in vids:
             v["watch_url"] = f"/api/watch/{v['id']}"
             v["type"] = v.get("source_type")
+            # Fast path: avoid expensive per-request file/network introspection.
+            # Keep only persisted metadata to keep "my videos" response fast.
             if v.get("source_type") == "file":
-                cnt, sz = local_zip_info(v.get("file_path"))
-                v["file_count"] = cnt
-                v["file_size"] = sz
+                v["file_count"] = v.get("file_count")
+                v["file_size"] = v.get("file_size") or "-"
             else:
                 v["file_count"] = None
-                v["file_size"] = remote_file_size(v.get("external_url"))
+                v["file_size"] = v.get("file_size") or "-"
         categories.append({"id": cat["id"], "title": cat["title"], "videos": vids})
     approved_text = "هنوز خریدی ثبت نشده است. ابتدا فیش را ارسال کنید."
     if latest and latest.get("status") == "pending":
@@ -1495,7 +1496,7 @@ def admin_create_video():
         return jsonify({"ok": False, "message": "فایل یا لینک لازم است"}), 400
     doc = {"id": mongo_next_id("videos"), "title": title, "category_id": category_id, "created_at": now_iso()}
     if external_url:
-        doc.update({"source_type": "url", "external_url": external_url, "file_path": None})
+        doc.update({"source_type": "url", "external_url": external_url, "file_path": None, "file_count": None, "file_size": "-"})
     else:
         filename = secure_filename(video_file.filename or "")
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -1503,7 +1504,8 @@ def admin_create_video():
             return jsonify({"ok": False, "message": "فقط ZIP مجاز است"}), 400
         final = f"{uuid.uuid4().hex}_{filename}"
         video_file.save(os.path.join(VIDEOS_DIR, final))
-        doc.update({"source_type": "file", "external_url": None, "file_path": final})
+        file_count, file_size = local_zip_info(final)
+        doc.update({"source_type": "file", "external_url": None, "file_path": final, "file_count": file_count, "file_size": file_size or "-"})
     mdb["videos"].insert_one(doc)
     return jsonify({"ok": True})
 
