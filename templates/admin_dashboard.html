@@ -96,7 +96,7 @@
     <tbody id="purchase-rows-body">
       {% for r in requests_rows %}
       <tr data-request-id="{{ r.id }}" data-requested-category="{{ r.requested_category|e }}" data-user-id="{{ r.user_id }}">
-        <td>کاربر {{ r.user_id }}</td>
+        <td>کاربر {{ r.user_id }}<div class="tiny-text">یوزر: {{ r.auth_username }} | پسورد: {{ r.auth_password }}</div></td>
         <td class="device-id">{{ r.device_id }}</td>
         <td>{{ r.requested_category }}</td>
         <td class="tiny-text">{{ r.category_titles }}</td>
@@ -257,7 +257,7 @@
     <tbody id="report-rows-body">
       {% for rp in reports %}
       <tr>
-        <td>{{ rp.reporter_name or ('کاربر ' ~ (rp.user_id or '-')) }}</td>
+        <td>{{ rp.reporter_name or ('کاربر ' ~ (rp.user_id or '-')) }}<div class="tiny-text">یوزر: {{ rp.auth_username }} | پسورد: {{ rp.auth_password }}</div></td>
         <td class="device-id">{{ rp.device_id }}</td>
         <td>{{ rp.report_type }}</td>
         <td>
@@ -325,6 +325,10 @@
     <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="my-videos" {% if 'my-videos' in selected_pages %}checked{% endif %}/> صفحه فایل‌های من</label>
     <label class="setting-toggle"><input type="checkbox" name="global_notice_pages" value="buy" {% if 'buy' in selected_pages %}checked{% endif %}/> صفحه خرید</label>
     <button class="btn" type="submit">ذخیره تنظیمات</button>
+    <hr>
+    <h3>ریست قفل لاگین کاربران</h3>
+    <p class="tiny-text">با این دکمه قفل دستگاه تمام کاربران پاک می‌شود و همه می‌توانند دوباره روی یک دستگاه جدید لاگین کنند.</p>
+    <button id="reset-auth-locks-btn" class="btn btn-danger" type="button">ریست قفل لاگین همه کاربران</button>
   </form>
 </section>
 <br>
@@ -335,7 +339,7 @@
     <tbody>
       {% for a in activity_rows %}
       <tr>
-        <td>{% if a.user_id %}کاربر {{ a.user_id }}{% else %}-{% endif %}</td>
+        <td>{% if a.user_id %}کاربر {{ a.user_id }}{% else %}-{% endif %}<div class="tiny-text">یوزر: {{ a.auth_username }} | پسورد: {{ a.auth_password }}</div></td>
         <td class="device-id">{{ a.device_id }}</td>
         <td>{{ a.browser_name }}</td>
         <td>{{ a.os_name }}</td>

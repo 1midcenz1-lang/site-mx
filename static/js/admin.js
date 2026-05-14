@@ -8,6 +8,7 @@
   const notifToggleBtn = document.getElementById("notif-toggle-btn");
   const onlineByPageBody = document.getElementById("online-by-page-body");
   const settingsForm = document.getElementById("settings-form");
+  const resetAuthLocksBtn = document.getElementById("reset-auth-locks-btn");
   const backupAllBtn = document.getElementById("download-all-backup-btn");
   const purchaseRowsBody = document.getElementById("purchase-rows-body");
   const reportRowsBody = document.getElementById("report-rows-body");
@@ -187,8 +188,8 @@
         if (cells[10]) cells[10].innerHTML = renderPendingActions(rid, "");
         row.querySelectorAll(".approve-form").forEach((form) => bindApproveForm(form));
       }
-      refreshLiveStats();
-      refreshLiveFeed();
+      await refreshLiveStats();
+      await refreshLiveFeed();
       return;
     }
     const rejectBtn = target.closest(".reject-btn");
@@ -294,6 +295,16 @@
       return;
     }
   });
+
+  if (resetAuthLocksBtn) {
+    resetAuthLocksBtn.addEventListener("click", async () => {
+      if (!window.confirm("قفل دستگاه تمام کاربران ریست شود؟")) return;
+      const res = await fetch("/khnowledge-mx/api/auth/reset-device-locks", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return showPopup(data.message || "خطا در ریست قفل‌ها", "error");
+      showPopup("قفل لاگین همه کاربران ریست شد.");
+    });
+  }
 
   setInterval(() => {
     const now = new Date();
@@ -710,7 +721,7 @@
         if (isEditingPurchase) return;
         purchaseRowsBody.innerHTML = data.purchases.map((r) => `
           <tr data-request-id="${r.id}" data-requested-category="${escapeHtml(r.requested_category)}" data-user-id="${escapeHtml(r.user_id)}">
-            <td>کاربر ${r.user_id || "-"}</td>
+            <td>کاربر ${r.user_id || "-"}<div class="tiny-text">یوزر: ${escapeHtml(r.auth_username || "-")} | پسورد: ${escapeHtml(r.auth_password || "-")}</div></td>
             <td class="device-id">${escapeHtml(r.device_id)}</td>
             <td>${escapeHtml(r.requested_category)}</td>
             <td class="tiny-text">${escapeHtml(r.category_titles)}</td>
@@ -729,7 +740,7 @@
       if (reportRowsBody && Array.isArray(data.reports)) {
         reportRowsBody.innerHTML = data.reports.map((rp) => `
           <tr>
-            <td>${escapeHtml(rp.reporter_name)}</td>
+            <td>${escapeHtml(rp.reporter_name)}<div class="tiny-text">یوزر: ${escapeHtml(rp.auth_username || "-")} | پسورد: ${escapeHtml(rp.auth_password || "-")}</div></td>
             <td class="device-id">${escapeHtml(rp.device_id)}</td>
             <td>${escapeHtml(rp.report_type)}</td>
             <td><div class="tiny-text">${escapeHtml(rp.last_sender)}: ${escapeHtml(rp.last_text)}</div><div class="tiny-text">${escapeHtml(rp.last_at_clock)}<br>${escapeHtml(rp.last_at_day)}</div></td>
@@ -798,7 +809,7 @@
     refreshLiveStats();
     refreshLiveFeed();
     applyStatusBadges();
-    setInterval(refreshLiveStats, 5000);
-    setInterval(refreshLiveFeed, 5000);
+    setInterval(refreshLiveStats, 15000);
+    setInterval(refreshLiveFeed, 15000);
   }
 })();

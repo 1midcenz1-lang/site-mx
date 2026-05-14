@@ -218,6 +218,17 @@
     const deviceId = onboard.deviceId;
 
     window.MX = window.MX || {};
+    const logoutBtn = document.getElementById("user-logout-btn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+        } catch (_err) {
+          // silent
+        }
+        window.location.href = "/login";
+      });
+    }
     window.MX.deviceId = deviceId;
     window.MX.ensureDeviceId = () => deviceId;
 
@@ -243,7 +254,7 @@
       }
     }
     refreshVideosBadge();
-    setInterval(refreshVideosBadge, 12000);
+    setInterval(refreshVideosBadge, 30000);
 
     const reportForm = document.getElementById("report-form");
     const reportResult = document.getElementById("report-result");
@@ -458,8 +469,8 @@
 
     refreshReplyBox();
     refreshPurchaseNotification();
-    setInterval(refreshReplyBox, 12000);
-    setInterval(refreshPurchaseNotification, 12000);
+    setInterval(refreshReplyBox, 30000);
+    setInterval(refreshPurchaseNotification, 30000);
   }
 
   setup();

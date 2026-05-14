@@ -228,7 +228,7 @@ def remote_file_size(url: str | None, allow_network: bool = True) -> str:
     return "-"
 
 
-def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict[int, dict], limit: int = 300):
+def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict[int, dict], limit: int | None = None):
     access_rows = list(mdb["user_access"].find({}, {"_id": 0, "user_id": 1, "category_id": 1}))
     access_by_user: dict[int, list[int]] = {}
     for ua in access_rows:
@@ -238,7 +238,10 @@ def build_admin_purchase_rows(mdb, cat_by_id: dict[int, dict], users_by_id: dict
             continue
         access_by_user.setdefault(uid, []).append(cid)
     rows = []
-    for r in mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1).limit(limit):
+    query = mdb["purchase_requests"].find({}, {"_id": 0}).sort("id", -1)
+    if isinstance(limit, int) and limit > 0:
+        query = query.limit(limit)
+    for r in query:
         user = users_by_id.get(r.get("user_id"), {})
         req_cat = cat_by_id.get(r.get("requested_category_id"), {})
         granted_ids = access_by_user.get(r.get("user_id"), [])
@@ -484,6 +487,31 @@ def bind_device(access_code: str, device_id: str):
     return True, ""
 
 
+def bind_auth_user_device(auth_user: dict, device_id: str):
+    mdb = mongo_db()
+    if mdb is None:
+        return False, "MongoDB unavailable"
+    max_devices = setting_int("max_devices_per_user", DEFAULT_MAX_DEVICES_PER_USER)
+    coll = mdb["auth_user_devices"]
+    uid = auth_user.get("id")
+    q = {"auth_user_id": uid} if uid is not None else {"username": auth_user.get("username")}
+    row = coll.find_one({**q, "device_id": device_id})
+    if row:
+        coll.update_one({"_id": row["_id"]}, {"$set": {"last_seen_at": now_iso()}})
+        return True, ""
+    if coll.count_documents(q) >= max_devices:
+        return False, f"حداکثر تعداد دستگاه برای این حساب ({max_devices}) پر شده است."
+    coll.insert_one({
+        "id": mongo_next_id("auth_user_devices"),
+        "auth_user_id": uid,
+        "username": auth_user.get("username"),
+        "device_id": device_id,
+        "first_seen_at": now_iso(),
+        "last_seen_at": now_iso(),
+    })
+    return True, ""
+
+
 def require_auth():
     did = get_device_id_from_request()
     if not did:
@@ -491,6 +519,23 @@ def require_auth():
     mdb = mongo_db()
     if mdb is None:
         return None, (jsonify({"ok": False, "message": "MongoDB unavailable"}), 503)
+    auth_user_id = session.get("auth_user_id")
+    auth_device_id = (session.get("auth_device_id") or "").strip()
+    if not auth_user_id:
+        return None, (jsonify({"ok": False, "message": "ابتدا وارد حساب شوید."}), 401)
+    auth_user = mdb["auth_users"].find_one({"id": auth_user_id}, {"_id": 0, "id": 1, "username": 1})
+    if not auth_user:
+        session.pop("auth_user_id", None)
+        session.pop("auth_device_id", None)
+        session.pop("auth_username", None)
+        return None, (jsonify({"ok": False, "message": "حساب کاربری معتبر نیست."}), 401)
+    bound = mdb["auth_user_devices"].find_one({"auth_user_id": auth_user_id, "device_id": did}, {"_id": 0, "id": 1})
+    if not bound and auth_user.get("username"):
+        bound = mdb["auth_user_devices"].find_one({"username": auth_user.get("username"), "device_id": did}, {"_id": 0, "id": 1})
+    if not bound:
+        return None, (jsonify({"ok": False, "message": "این دستگاه برای حساب شما ثبت نشده است."}), 403)
+    if auth_device_id and auth_device_id != did:
+        return None, (jsonify({"ok": False, "message": "ورود شما فقط روی دستگاه ثبت‌شده معتبر است."}), 403)
     user = mdb["users"].find_one({"device_id": did})
     if not user:
         alias = did.replace("-", "")[:12] or uuid.uuid4().hex[:12]
@@ -585,12 +630,59 @@ def messages_page():
 
 @app.get("/login")
 def login_page():
-    return redirect(url_for("home"))
+    next_url = (request.args.get("next") or "/").strip() or "/"
+    return render_template("login.html", next_url=next_url)
 
 
 @app.post("/api/auth/login")
 def api_auth_login():
-    return jsonify({"ok": False, "message": "سیستم کد دسترسی حذف شده است."}), 410
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip().lower()
+    password = str(payload.get("password") or "").strip()
+    device_id = str(payload.get("device_id") or "").strip()
+    if not username or not password or not device_id:
+        return jsonify({"ok": False, "message": "نام کاربری، رمز عبور و شناسه دستگاه لازم است."}), 400
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB unavailable"}), 503
+    user = mdb["auth_users"].find_one({"username": username}, {"_id": 0})
+    if not user or str(user.get("password") or "") != password:
+        return jsonify({"ok": False, "message": "نام کاربری یا رمز عبور اشتباه است."}), 401
+    ok_bind, err_bind = bind_auth_user_device(user, device_id)
+    if not ok_bind:
+        return jsonify({"ok": False, "message": err_bind}), 403
+    session["auth_user_id"] = user["id"]
+    session["auth_device_id"] = device_id
+    session["auth_username"] = username
+    register_visit(device_id)
+    return jsonify({"ok": True, "message": "ورود انجام شد."})
+
+
+@app.post("/api/auth/register")
+def api_auth_register():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip().lower()
+    password = str(payload.get("password") or "").strip()
+    device_id = str(payload.get("device_id") or "").strip()
+    if not username or not password or not device_id:
+        return jsonify({"ok": False, "message": "نام کاربری، رمز عبور و شناسه دستگاه لازم است."}), 400
+    if len(username) < 3 or len(password) < 4:
+        return jsonify({"ok": False, "message": "نام کاربری حداقل ۳ کاراکتر و رمز حداقل ۴ کاراکتر باشد."}), 400
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "MongoDB unavailable"}), 503
+    if mdb["auth_users"].find_one({"username": username}, {"_id": 1}):
+        return jsonify({"ok": False, "message": "این نام کاربری قبلاً ثبت شده است."}), 409
+    user = {"id": mongo_next_id("auth_users"), "username": username, "password": password, "created_at": now_iso(), "updated_at": now_iso()}
+    mdb["auth_users"].insert_one(user)
+    ok_bind, err_bind = bind_auth_user_device(user, device_id)
+    if not ok_bind:
+        return jsonify({"ok": False, "message": err_bind}), 403
+    session["auth_user_id"] = user["id"]
+    session["auth_device_id"] = device_id
+    session["auth_username"] = username
+    register_visit(device_id)
+    return jsonify({"ok": True, "message": "ثبت نام و ورود انجام شد."})
 
 
 @app.post("/api/auth/create-code")
@@ -600,7 +692,7 @@ def api_auth_create_code():
 
 @app.get("/api/auth/status")
 def api_auth_status():
-    return jsonify({"ok": True, "logged_in": True, "mode": "device_id"})
+    return jsonify({"ok": True, "logged_in": bool(session.get("auth_user_id")), "mode": "username_password"})
 
 
 @app.get("/api/auth/my-code")
@@ -610,6 +702,9 @@ def api_auth_my_code():
 
 @app.post("/api/auth/logout")
 def api_auth_logout():
+    session.pop("auth_user_id", None)
+    session.pop("auth_device_id", None)
+    session.pop("auth_username", None)
     return jsonify({"ok": True})
 
 
@@ -898,13 +993,14 @@ def api_my_videos():
         for v in vids:
             v["watch_url"] = f"/api/watch/{v['id']}"
             v["type"] = v.get("source_type")
+            # Fast path: avoid expensive per-request file/network introspection.
+            # Keep only persisted metadata to keep "my videos" response fast.
             if v.get("source_type") == "file":
-                cnt, sz = local_zip_info(v.get("file_path"))
-                v["file_count"] = cnt
-                v["file_size"] = sz
+                v["file_count"] = v.get("file_count")
+                v["file_size"] = v.get("file_size") or "-"
             else:
                 v["file_count"] = None
-                v["file_size"] = remote_file_size(v.get("external_url"))
+                v["file_size"] = v.get("file_size") or "-"
         categories.append({"id": cat["id"], "title": cat["title"], "videos": vids})
     approved_text = "هنوز خریدی ثبت نشده است. ابتدا فیش را ارسال کنید."
     if latest and latest.get("status") == "pending":
@@ -1028,7 +1124,7 @@ def admin_dashboard():
     videos = list(mdb["videos"].find({}, {"_id": 0}).sort("id", -1).limit(180))
 
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
-    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 300)
+    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, None)
     reports = build_admin_reports(mdb, cat_by_id, 300)
 
     testimonials = []
@@ -1065,11 +1161,34 @@ def admin_dashboard():
             vf = {"device_id": {"$regex": q, "$options": "i"}}
     visitors = list(mdb["visitors"].find(vf, {"_id": 0}).sort("last_seen_at", -1).limit(1500))
     visitor_device_ids = [v.get("device_id") for v in visitors if v.get("device_id")]
+    auth_users_all = list(mdb["auth_users"].find({}, {"_id": 0, "id": 1, "username": 1, "password": 1}))
+    auth_user_by_id = {x.get("id"): x for x in auth_users_all if x.get("id") is not None}
+    auth_user_by_username = {str(x.get("username") or "").strip().lower(): x for x in auth_users_all if str(x.get("username") or "").strip()}
+    creds_by_device = {}
+    for d in mdb["auth_user_devices"].find(
+        {"device_id": {"$in": visitor_device_ids}} if visitor_device_ids else {},
+        {"_id": 0, "device_id": 1, "auth_user_id": 1, "username": 1, "last_seen_at": 1},
+    ):
+        did = d.get("device_id")
+        if not did:
+            continue
+        au = auth_user_by_id.get(d.get("auth_user_id"))
+        if not au and d.get("username"):
+            au = auth_user_by_username.get(str(d.get("username")).strip().lower())
+        if not au:
+            continue
+        prev = creds_by_device.get(did)
+        if not prev or str(d.get("last_seen_at") or "") > str(prev.get("last_seen_at") or ""):
+            creds_by_device[did] = {
+                "username": au.get("username") or "-",
+                "password": au.get("password") or "-",
+                "last_seen_at": d.get("last_seen_at"),
+            }
     code_by_device = {
-        x.get("device_id"): x.get("access_code")
+        x.get("device_id"): (x.get("username") or x.get("access_code"))
         for x in mdb["auth_user_devices"].find(
             {"device_id": {"$in": visitor_device_ids}},
-            {"_id": 0, "device_id": 1, "access_code": 1},
+            {"_id": 0, "device_id": 1, "access_code": 1, "username": 1},
         )
         if x.get("device_id")
     } if visitor_device_ids else {}
@@ -1089,22 +1208,27 @@ def admin_dashboard():
     for v in visitors:
         if code_by_device.get(v.get("device_id")):
             v["username"] = code_by_device.get(v.get("device_id"))
+        if creds_by_device.get(v.get("device_id")):
+            v["auth_username"] = creds_by_device[v.get("device_id")]["username"]
+            v["auth_password"] = creds_by_device[v.get("device_id")]["password"]
+        elif v.get("username"):
+            v["auth_username"] = v.get("username")
+            v["auth_password"] = "نامشخص"
         user = user_by_device.get(v.get("device_id"))
         has_active_access = bool(user and user.get("id") in active_user_ids)
         v["purchase_status_label"] = "تایید شده" if has_active_access else "تایید نشده"
 
     auth_users_raw = list(mdb["auth_users"].find({}, {"_id": 0}).sort("id", -1).limit(300))
-    auth_codes = [a.get("access_code") for a in auth_users_raw if a.get("access_code")]
     auth_devices_by_code = {}
-    if auth_codes:
-        for d in mdb["auth_user_devices"].find({"access_code": {"$in": auth_codes}}, {"_id": 0, "access_code": 1, "last_seen_at": 1}):
-            code = d.get("access_code")
-            if not code:
-                continue
-            auth_devices_by_code.setdefault(code, []).append(d)
+    for d in mdb["auth_user_devices"].find({}, {"_id": 0, "access_code": 1, "username": 1, "auth_user_id": 1, "last_seen_at": 1}):
+        key = str(d.get("auth_user_id") or d.get("username") or d.get("access_code") or "")
+        if not key:
+            continue
+        auth_devices_by_code.setdefault(key, []).append(d)
     auth_users = []
     for au in auth_users_raw:
-        devs = auth_devices_by_code.get(au.get("access_code"), [])
+        key = str(au.get("id") or au.get("username") or au.get("access_code") or "")
+        devs = auth_devices_by_code.get(key, [])
         auth_users.append({**au, "device_count": len(devs), "last_device_seen": max([d.get("last_seen_at", "") for d in devs], default=None)})
 
     online_by_page = {}
@@ -1167,7 +1291,22 @@ def admin_dashboard():
             "liked_titles": "، ".join(liked_titles) if liked_titles else "-",
             "access_titles": "، ".join(access_titles) if access_titles else "-",
             "report_count": report_count,
+            "auth_username": v.get("auth_username") or "نامشخص",
+            "auth_password": v.get("auth_password") or "نامشخص",
         })
+    creds_by_user_id = {}
+    for a in activity_rows:
+        uid = a.get("user_id")
+        if uid is not None and a.get("auth_username") and a.get("auth_username") != "-":
+            creds_by_user_id[uid] = {"auth_username": a.get("auth_username"), "auth_password": a.get("auth_password")}
+    for r in requests_rows:
+        c = creds_by_device.get(r.get("device_id")) or creds_by_user_id.get(r.get("user_id"))
+        r["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "نامشخص"
+        r["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "نامشخص"
+    for rp in reports:
+        c = creds_by_device.get(rp.get("device_id")) or creds_by_user_id.get(rp.get("user_id"))
+        rp["auth_username"] = (c or {}).get("auth_username") or (c or {}).get("username") or "نامشخص"
+        rp["auth_password"] = (c or {}).get("auth_password") or (c or {}).get("password") or "نامشخص"
     base_stats.update({
         "total_reports": mdb["reports"].count_documents({}),
         "total_visitors": mdb["visitors"].count_documents({}),
@@ -1357,7 +1496,7 @@ def admin_create_video():
         return jsonify({"ok": False, "message": "فایل یا لینک لازم است"}), 400
     doc = {"id": mongo_next_id("videos"), "title": title, "category_id": category_id, "created_at": now_iso()}
     if external_url:
-        doc.update({"source_type": "url", "external_url": external_url, "file_path": None})
+        doc.update({"source_type": "url", "external_url": external_url, "file_path": None, "file_count": None, "file_size": "-"})
     else:
         filename = secure_filename(video_file.filename or "")
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -1365,7 +1504,8 @@ def admin_create_video():
             return jsonify({"ok": False, "message": "فقط ZIP مجاز است"}), 400
         final = f"{uuid.uuid4().hex}_{filename}"
         video_file.save(os.path.join(VIDEOS_DIR, final))
-        doc.update({"source_type": "file", "external_url": None, "file_path": final})
+        file_count, file_size = local_zip_info(final)
+        doc.update({"source_type": "file", "external_url": None, "file_path": final, "file_count": file_count, "file_size": file_size or "-"})
     mdb["videos"].insert_one(doc)
     return jsonify({"ok": True})
 
@@ -1443,6 +1583,17 @@ def admin_reset_pending(rid):
             mdb["user_access"].delete_many({"user_id": req["user_id"], "category_id": cid})
     mdb["purchase_requests"].update_one({"id": rid}, {"$set": {"status": "pending", "reviewed_at": None, "admin_note": None, "granted_category_ids": [], "is_fake_receipt": False}})
     return jsonify({"ok": True})
+
+
+@app.post("/khnowledge-mx/api/auth/reset-device-locks")
+@admin_required
+def admin_reset_auth_device_locks():
+    mdb = mongo_db()
+    if mdb is None:
+        return jsonify({"ok": False, "message": "Mongo unavailable"}), 503
+    mdb["auth_user_devices"].delete_many({})
+    mdb["auth_users"].update_many({}, {"$set": {"updated_at": now_iso()}})
+    return jsonify({"ok": True, "message": "قفل دستگاه همه کاربرها ریست شد."})
 
 
 @app.post("/khnowledge-mx/api/reports/<int:rid>/reply")
@@ -1700,12 +1851,51 @@ def admin_live_feed():
     categories = list(mdb["categories"].find({}, {"_id": 0, "id": 1, "title": 1}))
     cat_by_id = {c["id"]: c for c in categories}
     users_by_id = {u["id"]: u for u in mdb["users"].find({}, {"_id": 0, "id": 1, "device_id": 1})}
-    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, 120)
+    requests_rows = build_admin_purchase_rows(mdb, cat_by_id, users_by_id, None)
+    auth_users_all = list(mdb["auth_users"].find({}, {"_id": 0, "id": 1, "username": 1, "password": 1}))
+    auth_user_by_id = {x.get("id"): x for x in auth_users_all if x.get("id") is not None}
+    auth_user_by_username = {str(x.get("username") or "").strip().lower(): x for x in auth_users_all if str(x.get("username") or "").strip()}
+    creds_by_device = {}
+    for d in mdb["auth_user_devices"].find({}, {"_id": 0, "device_id": 1, "auth_user_id": 1, "username": 1, "last_seen_at": 1}):
+        did = d.get("device_id")
+        if not did:
+            continue
+        au = auth_user_by_id.get(d.get("auth_user_id"))
+        if not au and d.get("username"):
+            au = auth_user_by_username.get(str(d.get("username")).strip().lower())
+        if not au:
+            continue
+        prev = creds_by_device.get(did)
+        if not prev or str(d.get("last_seen_at") or "") > str(prev.get("last_seen_at") or ""):
+            creds_by_device[did] = {
+                "username": au.get("username") or "نامشخص",
+                "password": au.get("password") or "نامشخص",
+                "last_seen_at": d.get("last_seen_at"),
+            }
     reports = build_admin_reports(mdb, cat_by_id, 120)
+    creds_by_user_id = {}
+    for r in requests_rows:
+        c = creds_by_device.get(r.get("device_id"))
+        if not c:
+            uid = r.get("user_id")
+            c = creds_by_user_id.get(uid) if uid is not None else None
+        if not c:
+            c = {"username": "نامشخص", "password": "نامشخص"}
+        r["auth_username"] = c.get("username") or "نامشخص"
+        r["auth_password"] = c.get("password") or "نامشخص"
+        uid = r.get("user_id")
+        if uid is not None and r["auth_username"] != "نامشخص":
+            creds_by_user_id[uid] = {"username": r["auth_username"], "password": r["auth_password"]}
     report_rows = []
     for rp in reports:
         messages = rp.get("messages") or []
         last_msg = messages[-1] if messages else {}
+        c = creds_by_device.get(rp.get("device_id"))
+        if not c:
+            uid = rp.get("user_id")
+            c = creds_by_user_id.get(uid) if uid is not None else None
+        if not c:
+            c = {"username": "نامشخص", "password": "نامشخص"}
         report_rows.append({
             "id": rp.get("id"),
             "reporter_name": rp.get("reporter_name") or f"کاربر {rp.get('user_id') or '-'}",
@@ -1718,6 +1908,8 @@ def admin_live_feed():
             "last_text": last_msg.get("text") or "-",
             "last_at_clock": format_clock(last_msg.get("at")),
             "last_at_day": format_day(last_msg.get("at")),
+            "auth_username": c.get("username") or "نامشخص",
+            "auth_password": c.get("password") or "نامشخص",
         })
     return jsonify({"ok": True, "purchases": requests_rows, "reports": report_rows})
 
