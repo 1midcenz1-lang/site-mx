@@ -30,6 +30,15 @@
       resultBox.textContent = "نام کاربری و رمز عبور لازم است.";
       return;
     }
+
+    if (mode === "register") {
+      const alnum = /^[A-Za-z0-9]+$/;
+      if (!alnum.test(username) || !alnum.test(password)) {
+        resultBox.classList.add("error");
+        resultBox.textContent = "برای ثبت‌نام فقط حروف انگلیسی و اعداد مجاز است.";
+        return;
+      }
+    }
     resultBox.classList.remove("error");
     resultBox.textContent = "در حال ورود...";
     try {
