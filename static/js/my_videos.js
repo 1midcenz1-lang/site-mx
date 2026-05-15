@@ -93,9 +93,12 @@
   function showChannelJoinModalIfNeeded(hasApprovedAccess) {
     if (!hasApprovedAccess) return;
     const key = `mx_channel_join_prompt_count_${deviceId}`;
+    const sessionKey = `mx_channel_join_prompt_shown_this_visit_${deviceId}`;
     const maxShows = 2;
     const currentCount = Number(localStorage.getItem(key) || "0");
     if (currentCount >= maxShows) return;
+    if (sessionStorage.getItem(sessionKey) === "1") return;
+    sessionStorage.setItem(sessionKey, "1");
 
     const channelUrl = "https://rubika.ir/joinc/FADGGIBE0PUENMUDFANORJWWBUTJXPIW";
     const backdrop = document.createElement("div");
