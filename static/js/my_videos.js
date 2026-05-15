@@ -88,6 +88,41 @@
     document.body.appendChild(backdrop);
   }
 
+
+
+  function showChannelJoinModalIfNeeded(hasApprovedAccess) {
+    if (!hasApprovedAccess) return;
+    const key = `mx_channel_join_prompt_count_${deviceId}`;
+    const sessionKey = `mx_channel_join_prompt_shown_this_visit_${deviceId}`;
+    const maxShows = 2;
+    const currentCount = Number(localStorage.getItem(key) || "0");
+    if (currentCount >= maxShows) return;
+    if (sessionStorage.getItem(sessionKey) === "1") return;
+    sessionStorage.setItem(sessionKey, "1");
+
+    const channelUrl = "https://rubika.ir/joinc/FADGGIBE0PUENMUDFANORJWWBUTJXPIW";
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <h3>اطلاعیه مهم</h3>
+        <p>حتما تو کانال پایین عضو شوید. اگر سایت از دسترس خارج شد، لینک سایت جدید را داخل کانال می‌گذاریم تا سریع سایت جدید را پیدا کنید.</p>
+      </div>
+    `;
+
+    const closeAndRedirect = () => {
+      if (!backdrop.isConnected) return;
+      backdrop.remove();
+      localStorage.setItem(key, String(currentCount + 1));
+      window.location.href = channelUrl;
+    };
+
+    backdrop.addEventListener("click", closeAndRedirect);
+    const modalCard = backdrop.querySelector(".modal-card");
+    modalCard?.addEventListener("click", closeAndRedirect);
+    document.body.appendChild(backdrop);
+  }
+
   async function loadVideos() {
     const url = `/api/my-videos?device_id=${encodeURIComponent(deviceId)}`;
 
@@ -109,6 +144,7 @@
         listBox.innerHTML = "<div class='card'>هنوز دسترسی فعالی برای این دستگاه ثبت نشده است.</div>";
         return;
       }
+      showChannelJoinModalIfNeeded(data.categories.length > 0);
       showSurveyBoostPopup();
       const openIds = new Set(
         Array.from(listBox.querySelectorAll("details[data-cat-id]"))

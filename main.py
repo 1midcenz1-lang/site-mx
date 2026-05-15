@@ -668,6 +668,8 @@ def api_auth_register():
         return jsonify({"ok": False, "message": "نام کاربری، رمز عبور و شناسه دستگاه لازم است."}), 400
     if len(username) < 3 or len(password) < 4:
         return jsonify({"ok": False, "message": "نام کاربری حداقل ۳ کاراکتر و رمز حداقل ۴ کاراکتر باشد."}), 400
+    if not re.fullmatch(r"[a-z0-9]+", username) or not re.fullmatch(r"[A-Za-z0-9]+", password):
+        return jsonify({"ok": False, "message": "برای ثبت‌نام فقط حروف انگلیسی و اعداد مجاز است."}), 400
     mdb = mongo_db()
     if mdb is None:
         return jsonify({"ok": False, "message": "MongoDB unavailable"}), 503
